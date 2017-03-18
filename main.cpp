@@ -2,10 +2,185 @@
 #include <fstream>
 #include <vector>
 #include <map>
+#include <complex>
+#include <memory>
+#include <array>
 #include <cstdio>
 #include <cctype>
+#include <cstdint>
+#include <cassert>
 
 #define SHOW_INSTRS
+
+class qmdd
+{
+public:
+    using node_handle = uint32_t;
+    static const node_handle invalid_handle = -1;
+
+private:
+    class unique_table
+    {
+        struct node
+        {
+            uint32_t var;
+            std::array<node_handle,4> children;
+            std::array<std::complex<float>,4> weights;
+
+            bool operator==(const node& other) const
+            {
+                return std::tie(var, children, weights) == std::tie(other.var, other.children, other.weights);
+            }
+        };
+
+        static const uint32_t capacity = 0x100000;
+        static_assert((capacity & (capacity - 1)) == 0, "capacity must be power of two");
+
+        static const uint32_t ddutmask = capacity - 1;
+
+        std::unique_ptr<node[]> node_pool;
+
+        uint32_t pool_head;
+
+        node* pool_alloc()
+        {
+            uint32_t old_head = pool_head++;
+
+            if (old_head >= capacity)
+            {
+                printf("pool_alloc failed\n");
+                std::abort();
+            }
+
+            return &node_pool[old_head];
+        }
+
+        std::unique_ptr<node_handle[]> table;
+
+        node* true_node;
+
+        node_handle to_handle(const node* n) const
+        {
+            return node_handle(n - &node_pool[0]);
+        }
+
+        const node* to_node(node_handle h) const
+        {
+            return (const node*)&node_pool[h];
+        }
+
+    public:
+        void init(uint32_t num_vars)
+        {
+            node_pool.reset(new node[capacity]);
+            pool_head = 0;
+
+            table.reset(new node_handle[capacity]);
+            for (uint32_t i = 0; i < capacity; i++)
+            {
+                table[i] = invalid_handle;
+            }
+
+            true_node = pool_alloc();
+            true_node->var = num_vars;
+            true_node->children[0] = to_handle(true_node);
+            true_node->children[1] = to_handle(true_node);
+            true_node->children[2] = to_handle(true_node);
+            true_node->children[3] = to_handle(true_node);
+            true_node->weights[0] = 1.0f;
+            true_node->weights[1] = 1.0f;
+            true_node->weights[2] = 1.0f;
+            true_node->weights[3] = 1.0f;
+        }
+
+        node_handle get_true() const
+        {
+            return to_handle(true_node);
+        }
+
+        node_handle insert(uint32_t var, const node_handle children[4], const std::complex<float> weights[4])
+        {
+            node n;
+            n.var = var;
+            n.children[0] = children[0];
+            n.children[1] = children[1];
+            n.children[2] = children[2];
+            n.children[3] = children[3];
+            n.weights[0] = weights[0];
+            n.weights[1] = weights[1];
+            n.weights[2] = weights[2];
+            n.weights[3] = weights[3];
+
+            uint32_t p = var;
+            for (node_handle child : n.children)
+                p += child;
+            p = p & ddutmask;
+
+            while (table[p] != invalid_handle)
+            {
+                const node* curr = to_node(table[p]);
+                if (*curr == n)
+                {
+                    return to_handle(curr);
+                }
+                p = (p + 1) & ddutmask;
+            }
+
+            node* new_node = pool_alloc();
+            *new_node = n;
+
+            node_handle handle = to_handle(new_node);
+            table[p] = handle;
+            return handle;
+        }
+    };
+
+    unique_table uniquetb;
+
+    node_handle true_node;
+
+public:
+    enum qmdd_op
+    {
+        qmdd_op_add,
+        qmdd_op_mul,
+        qmdd_op_kro
+    };
+
+    explicit qmdd(uint32_t num_vars)
+    {
+        uniquetb.init(num_vars);
+
+        true_node = uniquetb.get_true();
+    }
+
+    node_handle get_true() const
+    {
+        return true_node;
+    }
+
+    node_handle make_node(uint32_t var, const node_handle children[4], const std::complex<float> weights[4])
+    {
+        // enforce no-redundancy constraint of QMDD
+        if (children[0] == children[1] &&
+            children[1] == children[2] &&
+            children[2] == children[3] &&
+            weights[0] == weights[1] &&
+            weights[1] == weights[2] &&
+            weights[2] == weights[3])
+        {
+            return children[0];
+        }
+
+        // enforce uniqueness constraint of QMDD
+        return uniquetb.insert(var, children, weights);
+    }
+
+    node_handle apply(node_handle dd1, node_handle dd2, qmdd_op op)
+    {
+        
+    }
+};
 
 enum class gate_opcode : int
 {
@@ -35,8 +210,10 @@ struct program_spec
     std::vector<int> gate_stream;
 };
 
-void decode(const program_spec& spec)
+qmdd decode(const program_spec& spec)
 {
+    qmdd dd(spec.num_variables);
+
     for (int gate_stream_idx = 0; gate_stream_idx < spec.gate_stream.size(); )
     {
         gate_opcode opcode = (gate_opcode)spec.gate_stream[gate_stream_idx];
@@ -64,6 +241,44 @@ void decode(const program_spec& spec)
             }
             printf("\n");
 #endif
+
+            assert(last_param - first_param >= 1);
+
+            int target_var = *(last_param - 1);
+
+            const qmdd::node_handle identity_children[4] = { dd.get_true(), dd.get_true(), dd.get_true(), dd.get_true() };
+            const std::complex<float> identity_weights[4] = { 1.0f, 0.0f, 1.0f, 0.0f };
+            const std::complex<float> not_weights[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+            const std::complex<float> if_false_weights[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+            const std::complex<float> if_true_weights[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            
+            qmdd::node_handle target_identity_handle = dd.make_node(target_var, identity_children, identity_weights);
+            qmdd::node_handle target_not_handle = dd.make_node(target_var, identity_children, not_weights);
+
+            // variables below the target
+            const int* next_control = last_param - 2;
+            for (const int* control = next_control; control >= first_param; control--)
+            {
+                if (*control < target_var)
+                {
+                    next_control = control;
+                    break;
+                }
+
+                // TODO: handle variable below target
+            }
+
+            // the target variable
+            {
+                // TODO: handle target variable
+            }
+
+            // variables above the target
+            for (const int* control = next_control; control >= first_param; control--)
+            {
+                // TODO: handle variable above target
+            }
+
             break;
         }
         case gate_opcode::fredkin:
@@ -80,6 +295,9 @@ void decode(const program_spec& spec)
             }
             printf("\n");
 #endif
+
+            assert(!"fredkin not supported yet");
+
             break;
         }
         default:
@@ -88,6 +306,8 @@ void decode(const program_spec& spec)
 
         gate_stream_idx += param_count;
     }
+
+    return dd;
 }
 
 program_spec parse(const char* txt)
@@ -487,6 +707,8 @@ program_spec parse(const char* txt)
                         spec.gate_stream.push_back((int)gate_opcode::toffoli);
                         spec.gate_stream.push_back(pcnt);
 
+                        size_t first_param_i = spec.gate_stream.size();
+
                         s = accept_list(s, [&](const char* first, const char* last)
                         {
                             if (pcnt == 0)
@@ -504,6 +726,23 @@ program_spec parse(const char* txt)
 
                             pcnt -= 1;
                         });
+
+                        int last_var = -1;
+                        for (size_t i = first_param_i; i < spec.gate_stream.size() - 1; i++)
+                        {
+                            if (last_var == -1)
+                            {
+                                last_var = spec.gate_stream[i];
+                                continue;
+                            }
+
+                            if (last_var >= spec.gate_stream[i])
+                            {
+                                throw std::runtime_error("parameters must be in variable order");
+                            }
+
+                            last_var = spec.gate_stream[i];
+                        }
 
                         continue;
                     }
@@ -519,6 +758,8 @@ program_spec parse(const char* txt)
                         spec.gate_stream.push_back((int)gate_opcode::fredkin);
                         spec.gate_stream.push_back(pcnt);
 
+                        size_t first_param_i = spec.gate_stream.size();
+
                         s = accept_list(s, [&](const char* first, const char* last)
                         {
                             if (pcnt == 0)
@@ -536,6 +777,23 @@ program_spec parse(const char* txt)
 
                             pcnt -= 1;
                         });
+
+                        int last_var = -1;
+                        for (size_t i = first_param_i; i < spec.gate_stream.size() - 1; i++)
+                        {
+                            if (last_var == -1)
+                            {
+                                last_var = spec.gate_stream[i];
+                                continue;
+                            }
+
+                            if (last_var >= spec.gate_stream[i])
+                            {
+                                throw std::runtime_error("parameters must be in variable order");
+                            }
+
+                            last_var = spec.gate_stream[i];
+                        }
 
                         continue;
                     }
@@ -581,5 +839,5 @@ int main(int argc, char* argv[])
 
     program_spec spec = parse(spec_str.c_str());
 
-    decode(spec);
+    qmdd dd = decode(spec);
 }
