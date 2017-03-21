@@ -5,5 +5,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="rd32.tfc" />
+    <None Include="not.tfc" />
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>
