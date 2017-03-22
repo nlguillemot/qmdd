@@ -73,6 +73,9 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="cnot.tfc" />
+    <None Include="id1.tfc" />
+    <None Include="id2.tfc" />
     <None Include="not.tfc" />
     <None Include="packages.config" />
     <None Include="rd32.tfc" />

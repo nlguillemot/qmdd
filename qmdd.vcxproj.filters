@@ -4,8 +4,26 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="rd32.tfc" />
-    <None Include="not.tfc" />
     <None Include="packages.config" />
+    <None Include="cnot.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="id1.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="not.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="rd32.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="id2.tfc">
+      <Filter>tests</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="tests">
+      <UniqueIdentifier>{d4f79e2a-4cf3-40e9-8e53-ff744b066d51}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
 </Project>

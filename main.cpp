@@ -565,63 +565,287 @@ program_spec parse(const char* txt)
 class qmdd
 {
 public:
-    using node_handle = uint32_t;
-    static const node_handle invalid_handle = -1;
+    struct node_handle
+    { 
+        uint32_t value;
 
-    struct weight_nul {};
-    struct weight_one {};
+        bool operator==(const node_handle& other) const
+        {
+            return value == other.value;
+        }
 
-    class weight_t
+        bool operator!=(const node_handle& other) const
+        {
+            return !(operator==(other));
+        }
+    };
+
+    struct weight_handle
+    { 
+        uint32_t value;
+
+        bool operator==(const weight_handle& other) const
+        {
+            return value == other.value;
+        }
+
+        bool operator!=(const weight_handle& other) const
+        {
+            return !(operator==(other));
+        }
+    };
+
+    struct edge
     {
-        int rnum;
-        int rden;
+        weight_handle w;
+        node_handle v;
+    };
+    
+    static constexpr node_handle invalid_node = node_handle{ uint32_t(-1) };
+    static constexpr weight_handle invalid_weight = weight_handle{ uint32_t(-1) };
 
-        int inum;
-        int iden;
+    static constexpr weight_handle weight_0_handle = weight_handle{0};
+    static constexpr weight_handle weight_1_handle = weight_handle{1};
+
+    enum edge_op
+    {
+        edge_op_add,
+        edge_op_mul,
+        edge_op_kro
+    };
+
+private:
+    class weight
+    {
+        // rational algorithms from Boost.Rational (see boost/rational.hpp for explanation)
+        class rational
+        {
+            int num;
+            int den;
+
+            static int gcd(int a, int b)
+            {
+                return b == 0 ? a : gcd(b, a % b);
+            }
+
+        public:
+            rational() = default;
+
+            rational(int n)
+                : num(n), den(1)
+            { }
+
+            int numerator() const
+            {
+                return num;
+            }
+
+            int denominator() const
+            {
+                return den;
+            }
+
+            bool operator==(const rational& other) const
+            {
+                return num == other.num && den == other.den;
+            }
+
+            rational& operator+=(const rational& other)
+            {
+                // Protect against self-modification
+                int r_num = other.num;
+                int r_den = other.den;
+
+                int g = gcd(den, r_den);
+                den /= g;
+                num = num * (r_den / g) + r_num * den;
+                g = gcd(num, g);
+                num /= g;
+                den *= r_den / g;
+                
+                return *this;
+            }
+
+            rational& operator-=(const rational& other)
+            {
+                // Protect against self-modification
+                int r_num = other.num;
+                int r_den = other.den;
+
+                int g = gcd(den, r_den);
+                den /= g;
+                num = num * (r_den / g) - r_num * den;
+                g = gcd(num, g);
+                num /= g;
+                den *= r_den / g;
+
+                return *this;
+            }
+
+            rational& operator*=(const rational& other)
+            {
+                // Protect against self-modification
+                int r_num = other.num;
+                int r_den = other.den;
+
+                int gcd1 = gcd(num, r_den);
+                int gcd2 = gcd(r_num, den);
+                num = (num / gcd1) * (r_num / gcd2);
+                den = (den / gcd2) * (r_den / gcd1);
+
+                return *this;
+            }
+
+            rational& operator/=(const rational& other)
+            {
+                // Protect against self-modification
+                int r_num = other.num;
+                int r_den = other.den;
+
+                assert(r_num != 0);
+
+                if (num == 0)
+                    return *this;
+
+                int gcd1 = gcd(num, r_num);
+                int gcd2 = gcd(r_den, den);
+                num = (num / gcd1) * (r_den / gcd2);
+                den = (den / gcd2) * (r_num / gcd1);
+
+                if (den < 0)
+                {
+                    num = -num;
+                    den = -den;
+                }
+
+                return *this;
+            }
+
+            rational operator+(const rational& other) const
+            {
+                rational tmp(*this);
+                return tmp += other;
+            }
+
+            rational operator-(const rational& other) const
+            {
+                rational tmp(*this);
+                return tmp -= other;
+            }
+
+            rational operator*(const rational& other) const
+            {
+                rational tmp(*this);
+                return tmp *= other;
+            }
+
+            rational operator/(const rational& other) const
+            {
+                rational tmp(*this);
+                return tmp /= other;
+            }
+        };
+
+        rational real;
+        rational imag;
 
     public:
-        weight_t() = default;
+        weight() = default;
 
-        weight_t(weight_nul)
-            : rnum(0), rden(1)
-            , inum(0), iden(1)
+        explicit weight(int n)
+            : real(n)
+            , imag(0)
         { }
 
-        weight_t(weight_one)
-            : rnum(1), rden(1)
-            , inum(0), iden(1)
-        { }
-
-        bool operator==(const weight_t& other) const
+        bool operator==(const weight& other) const
         {
-            return rnum == other.rnum && rden == other.rden
-                && inum == other.inum && iden == other.iden;
+            return real == other.real && imag == other.imag;
+        }
+
+        bool operator!=(const weight& other) const
+        {
+            return !(operator==(other));
+        }
+
+        weight& operator+=(const weight& other)
+        {
+            // (a + bi) + (c + di)
+            // = (a + c) + (b + d)i
+            rational a = real, b = imag, c = other.real, d = other.imag;
+
+            real = a + c;
+            imag = b + d;
+
+            return *this;
+        }
+
+        weight operator+(const weight& other) const
+        {
+            weight tmp(*this);
+            return tmp += other;
+        }
+
+        weight& operator*=(const weight& other)
+        {
+            // (a + bi) * (c + di)
+            // = ac + adi + bci - bd
+            // = (ac - bd) + (ad + bc)i
+            rational a = real, b = imag, c = other.real, d = other.imag;
+            
+            real = a * c - b * d;
+            imag = a * d + b * c;
+
+            return *this;
+        }
+
+        weight operator*(const weight& other) const
+        {
+            weight tmp(*this);
+            return tmp *= other;
+        }
+
+        weight& operator/=(const weight& other)
+        {
+            // proof: http://mathworld.wolfram.com/ComplexDivision.html
+            rational a = real, b = imag, c = other.real, d = other.imag;
+
+            rational denom = c * c + d * d;
+            real = (a * c + b * d) / denom;
+            imag = (b * c - a * d) / denom;
+
+            return *this;
+        }
+
+        weight operator/(const weight& other) const
+        {
+            weight tmp(*this);
+            return tmp /= other;
         }
 
         std::string to_string() const
         {
             std::string s;
 
-            if (rden == 1)
+            if (real.denominator() == 1)
             {
-                s += std::to_string(rnum);
+                s += std::to_string(real.numerator());
             }
             else
             {
-                s += std::to_string(rnum) + "/" + std::to_string(rden);
+                s += std::to_string(real.numerator()) + "/" + std::to_string(real.denominator());
             }
 
-            if (inum != 0)
+            if (imag.numerator() != 0)
             {
                 s += "+";
 
-                if (iden == 1)
+                if (imag.denominator() == 1)
                 {
-                    s += std::to_string(inum) + "i";
+                    s += std::to_string(imag.numerator()) + "i";
                 }
                 else
                 {
-                    s += std::to_string(inum) + "/" + std::to_string(iden);
+                    s += std::to_string(imag.numerator()) + "/" + std::to_string(imag.denominator());
                 }
             }
 
@@ -629,14 +853,13 @@ public:
         }
     };
 
-private:
     class unique_table
     {
         struct node
         {
             uint32_t var;
             std::array<node_handle,4> children;
-            std::array<weight_t,4> weights;
+            std::array<weight_handle,4> weights;
 
             bool operator==(const node& other) const
             {
@@ -672,12 +895,12 @@ private:
 
         node_handle to_handle(const node* n) const
         {
-            return node_handle(n - &node_pool[0]);
+            return node_handle{ uint32_t(n - &node_pool[0]) };
         }
 
         const node* to_node(node_handle h) const
         {
-            return (const node*)&node_pool[h];
+            return (const node*)&node_pool[h.value];
         }
 
     public:
@@ -689,7 +912,7 @@ private:
             table.reset(new node_handle[capacity]);
             for (uint32_t i = 0; i < capacity; i++)
             {
-                table[i] = invalid_handle;
+                table[i] = invalid_node;
             }
 
             true_node = pool_alloc();
@@ -698,10 +921,10 @@ private:
             true_node->children[1] = to_handle(true_node);
             true_node->children[2] = to_handle(true_node);
             true_node->children[3] = to_handle(true_node);
-            true_node->weights[0] = weight_one();
-            true_node->weights[1] = weight_one();
-            true_node->weights[2] = weight_one();
-            true_node->weights[3] = weight_one();
+            true_node->weights[0] = weight_1_handle;
+            true_node->weights[1] = weight_1_handle;
+            true_node->weights[2] = weight_1_handle;
+            true_node->weights[3] = weight_1_handle;
         }
 
         node_handle get_true() const
@@ -723,7 +946,12 @@ private:
             }
         }
 
-        void get_weights(node_handle h, weight_t weights[4]) const
+        node_handle get_child(node_handle h, int i) const
+        {
+            return to_node(h)->children[i];
+        }
+
+        void get_weights(node_handle h, weight_handle weights[4]) const
         {
             const node* n = to_node(h);
             for (int i = 0; i < 4; i++)
@@ -732,7 +960,12 @@ private:
             }
         }
 
-        node_handle insert(uint32_t var, const node_handle children[4], const weight_t weights[4])
+        weight_handle get_weight(node_handle h, int i) const
+        {
+            return to_node(h)->weights[i];
+        }
+
+        node_handle insert(uint32_t var, const node_handle children[4], const weight_handle weights[4])
         {
             node n;
             n.var = var;
@@ -745,42 +978,143 @@ private:
             n.weights[2] = weights[2];
             n.weights[3] = weights[3];
 
-            uint32_t p = var;
-            for (node_handle child : n.children)
-                p += child;
-            p = p & ddutmask;
-
-            while (table[p] != invalid_handle)
+            uint32_t key = var;
+            for (int i = 0; i < 4; i++)
             {
-                const node* curr = to_node(table[p]);
+                key += children[i].value + weights[i].value;
+            }
+            key = key & ddutmask;
+
+            while (table[key] != invalid_node)
+            {
+                const node* curr = to_node(table[key]);
                 if (*curr == n)
                 {
                     return to_handle(curr);
                 }
-                p = (p + 1) & ddutmask;
+                key = (key + 1) & ddutmask;
             }
 
             node* new_node = pool_alloc();
             *new_node = n;
 
             node_handle handle = to_handle(new_node);
-            table[p] = handle;
+            table[key] = handle;
             return handle;
         }
     };
 
+    class computed_table
+    {
+    public:
+        edge find(const edge& e0, const edge& e1, edge_op op) const
+        {
+            // TODO
+            return edge{ invalid_weight, invalid_node };
+        }
+
+        void insert(const edge& e0, const edge& e1, edge_op op, const edge& r)
+        {
+            // TODO
+        }
+    };
+
+    class unique_weights
+    {
+        std::vector<weight> weights;
+
+    public:
+        unique_weights()
+        {
+            weights.push_back(weight(0));
+            weights.push_back(weight(1));
+        }
+
+        weight_handle insert(const weight& w)
+        {
+            for (size_t i = 0; i < weights.size(); i++)
+            {
+                if (weights[i] == w)
+                {
+                    return weight_handle{ uint32_t(i) };
+                }
+            }
+
+            weights.push_back(w);
+            return weight_handle{ uint32_t(weights.size() - 1) };
+        }
+
+        weight get_weight(weight_handle w) const
+        {
+            return weights[w.value];
+        }
+    };
+
+    enum weight_op
+    {
+        weight_op_add,
+        weight_op_mul,
+        weight_op_div
+    };
+
+    class computed_weights
+    {
+    public:
+        weight_handle find(weight_handle w0, weight_handle w1, weight_op op) const
+        {
+            // TODO
+            return invalid_weight;
+        }
+
+        void insert(weight_handle w0, weight_handle w1, weight_op op, weight_handle r)
+        {
+            // TODO
+        }
+    };
+
     unique_table uniquetb;
+    computed_table computedtb;
+
+    unique_weights uniquewt;
+    computed_weights computedwt;
 
     node_handle true_node;
 
-public:
-    enum qmdd_op
+    weight_handle apply(weight_handle w0, weight_handle w1, weight_op op)
     {
-        qmdd_op_add,
-        qmdd_op_mul,
-        qmdd_op_kro
-    };
+        weight_handle found = computedwt.find(w0, w1, op);
+        if (found != invalid_weight)
+        {
+            return found;
+        }
 
+        weight new_weight;
+        if (op == weight_op_add)
+        {
+            new_weight = uniquewt.get_weight(w0) + uniquewt.get_weight(w1);
+        }
+        else if (op == weight_op_mul)
+        {
+            new_weight = uniquewt.get_weight(w0) * uniquewt.get_weight(w1);
+        }
+        else if (op == weight_op_div)
+        {
+            new_weight = uniquewt.get_weight(w0) / uniquewt.get_weight(w1);
+        }
+        else
+        {
+            assert(!"unimplemented op");
+            return invalid_weight;
+        }
+
+        weight_handle w = uniquewt.insert(new_weight);
+
+        computedwt.insert(w0, w1, op, w);
+
+        return w;
+    }
+
+public:
     explicit qmdd(uint32_t num_vars)
     {
         uniquetb.init(num_vars);
@@ -803,12 +1137,12 @@ public:
         return uniquetb.get_children(h, children);
     }
 
-    void get_weights(node_handle h, weight_t weights[4]) const
+    void get_weights(node_handle h, weight_handle weights[4]) const
     {
         return uniquetb.get_weights(h, weights);
     }
 
-    node_handle make_node(uint32_t var, const node_handle children[4], const weight_t weights[4])
+    node_handle make_node(uint32_t var, const node_handle children[4], const weight_handle weights[4])
     {
         // enforce no-redundancy constraint of QMDD
         if (children[0] == children[1] &&
@@ -825,23 +1159,162 @@ public:
         return uniquetb.insert(var, children, weights);
     }
 
-    node_handle apply(node_handle dd1, node_handle dd2, qmdd_op op)
+    edge apply(const edge& e0, const edge& e1, edge_op op)
     {
-        
+        // helper to make the code better match the pseudo-code
+        struct apply_helper
+        {
+            qmdd* const dd;
+
+            weight_handle w(const edge& e)
+            {
+                return e.w; 
+            }
+
+            node_handle v(const edge& e)
+            {
+                return e.v;
+            }
+
+            int x(const edge& e)
+            { 
+                return dd->get_var(e.v); 
+            }
+
+            edge Ei(const edge& e, int i)
+            {
+                return edge{ dd->uniquetb.get_weight(e.v, i), dd->uniquetb.get_child(e.v, i) };
+            }
+
+            bool term(const edge& e)
+            { 
+                return e.v == dd->get_true();
+            }
+
+            weight_handle normalize(weight_handle children[4])
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    if (children[i] != weight_0_handle)
+                    {
+                        weight_handle edge_weight = children[i];
+
+                        // normalize this child
+                        children[i] = weight_1_handle;
+
+                        // normalize the other children
+                        for (int j = i + 1; j < 4; j++)
+                        {
+                            if (children[j] != weight_0_handle)
+                            {
+                                children[j] = dd->apply(children[j], edge_weight, weight_op_div);
+                            }
+                        }
+
+                        return edge_weight;
+                    }
+                }
+
+                assert(!"expected at least one non-zero weight");
+                return weight_0_handle;
+            }
+
+            edge kro(const edge& e0, const edge& e1)
+            {
+                // simplifying assumption
+                assert(x(e0) < x(e1));
+
+                if (term(e0))
+                {
+                    if (w(e0) == weight_0_handle)
+                    {
+                        return e0;
+                    }
+                    else if (w(e0) == weight_1_handle)
+                    {
+                        return e1;
+                    }
+                    else
+                    {
+                        return edge{ dd->apply(w(e0), w(e1), weight_op_mul), v(e1) };
+                    }
+                }
+                
+                node_handle z_children[4];
+                weight_handle z_weights[4];
+                for (int i = 0; i < 4; i++)
+                {
+                    edge zi = dd->apply(Ei(e0, i), e1, edge_op_kro);
+                    z_children[i] = zi.v;
+                    z_weights[i] = zi.w;
+                }
+
+                weight_handle new_weight = normalize(z_weights);
+                new_weight = dd->apply(new_weight, w(e0), weight_op_mul);
+
+                node_handle new_node = dd->make_node(x(e0), z_children, z_weights);
+
+                return edge{ new_weight, new_node };
+            };
+        };
+
+        edge found = computedtb.find(e0, e1, op);
+        if (found.v != invalid_node)
+        {
+            return found;
+        }
+
+        apply_helper helper{ this };
+
+        edge new_edge;
+
+        if (op == edge_op_kro)
+        {
+            new_edge = helper.kro(e0, e1);
+        }
+        else
+        {
+            assert(!"unimplemented op");
+            return edge{ invalid_weight, invalid_node };
+        }
+
+        computedtb.insert(e0, e1, op, new_edge);
+
+        return new_edge;
+    }
+
+    std::string to_string(weight_handle w) const
+    {
+        return uniquewt.get_weight(w).to_string();
     }
 };
 
-std::string to_string(const qmdd::weight_t& w)
-{
-    return w.to_string();
-}
-
-qmdd decode(const program_spec& spec, qmdd::node_handle* root_out)
+qmdd decode(const program_spec& spec, qmdd::edge* root_out)
 {
     qmdd dd(spec.num_variables);
 
-    // TODO: initialize circuit with p^n by p^n identity
-    qmdd::node_handle root;
+    qmdd::node_handle true_node = dd.get_true();
+
+    const qmdd::node_handle identity_children[4]  = { true_node,             true_node,             true_node,             true_node             };
+    const qmdd::weight_handle identity_weights[4] = { qmdd::weight_1_handle, qmdd::weight_0_handle, qmdd::weight_1_handle, qmdd::weight_0_handle };
+    const qmdd::weight_handle not_weights[4]      = { qmdd::weight_0_handle, qmdd::weight_1_handle, qmdd::weight_1_handle, qmdd::weight_0_handle };
+    const qmdd::weight_handle if_false_weights[4] = { qmdd::weight_1_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_0_handle };
+    const qmdd::weight_handle if_true_weights[4]  = { qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_1_handle };
+
+    // initialize circuit with p^n by p^n identity
+    qmdd::edge root = qmdd::edge{ qmdd::weight_1_handle, true_node };
+    for (int var_id = spec.num_variables - 1; var_id >= 0; var_id--)
+    {
+        qmdd::edge curr_identity{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) };
+
+        if (var_id == spec.num_variables - 1)
+        {
+            root = curr_identity;
+            continue;
+        }
+        
+        root = dd.apply(curr_identity, root, qmdd::edge_op_kro);
+    }
 
     for (int gate_stream_idx = 0; gate_stream_idx < spec.gate_stream.size(); )
     {
@@ -873,40 +1346,32 @@ qmdd decode(const program_spec& spec, qmdd::node_handle* root_out)
 
             assert(last_param - first_param >= 1);
 
-            int target_var = *(last_param - 1);
-
-            const qmdd::node_handle identity_children[4] = { dd.get_true(), dd.get_true(), dd.get_true(), dd.get_true() };
-            const qmdd::weight_t identity_weights[4] = { qmdd::weight_one(), qmdd::weight_nul(), qmdd::weight_one(), qmdd::weight_nul() };
-            const qmdd::weight_t not_weights[4]      = { qmdd::weight_nul(), qmdd::weight_one(), qmdd::weight_one(), qmdd::weight_nul() };
-            const qmdd::weight_t if_false_weights[4] = { qmdd::weight_one(), qmdd::weight_nul(), qmdd::weight_nul(), qmdd::weight_nul() };
-            const qmdd::weight_t if_true_weights[4]  = { qmdd::weight_nul(), qmdd::weight_nul(), qmdd::weight_nul(), qmdd::weight_one() };
+            int target_var_id = *(last_param - 1);
             
-            qmdd::node_handle target_identity_handle = dd.make_node(target_var, identity_children, identity_weights);
-            qmdd::node_handle target_not_handle = dd.make_node(target_var, identity_children, not_weights);
+            qmdd::node_handle target_identity_handle = dd.make_node(target_var_id, identity_children, identity_weights);
+            qmdd::node_handle target_not_handle = dd.make_node(target_var_id, identity_children, not_weights);
 
-            // variables below the target
-            const int* next_control = last_param - 2;
-            for (const int* control = next_control; control >= first_param; control--)
+            for (int var_id = spec.num_variables - 1; var_id >= 0; var_id--)
             {
-                if (*control < target_var)
+                // variables below the target
+                if (var_id > target_var_id)
                 {
-                    next_control = control;
-                    break;
+                    continue;
                 }
 
-                // TODO: handle variable below target
-            }
+                // the target variable
+                if (var_id == target_var_id)
+                {
+                    // TODO: point children to QMDDs constructed below it
+                    root = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(target_var_id, identity_children, not_weights) };
+                    continue;
+                }
 
-            // the target variable
-            {
-                // TODO: point children to QMDDs constructed in the first phase
-                root = dd.make_node(target_var, identity_children, not_weights);
-            }
-
-            // variables above the target
-            for (const int* control = next_control; control >= first_param; control--)
-            {
-                // TODO: handle variable above target
+                // variables above the target
+                if (var_id < target_var_id)
+                {
+                    continue;
+                }
             }
 
             break;
@@ -945,7 +1410,7 @@ qmdd decode(const program_spec& spec, qmdd::node_handle* root_out)
 void write_dot(
     const char* title,
     const program_spec& spec, const qmdd& dd,
-    qmdd::node_handle root,
+    const qmdd::edge& root,
     const char* fn)
 {
     FILE* f = fopen(fn, "w");
@@ -960,25 +1425,36 @@ void write_dot(
     fprintf(f, "  labelloc=\"t\";\n");
     fprintf(f, "  label=\"%s\";\n", title);
 
-    std::vector<qmdd::node_handle> nodes2add = { root };
+    std::vector<qmdd::node_handle> nodes2add = { root.v };
 
     qmdd::node_handle true_node = dd.get_true();
 
-    std::unordered_set<qmdd::node_handle> added;
+    struct node_hasher
+    {
+        auto operator()(qmdd::node_handle n) const
+        {
+            return n.value;
+        }
+    };
+
+    std::unordered_set<qmdd::node_handle, node_hasher> added;
     added.insert(true_node);
 
-    std::unordered_set<qmdd::node_handle> declared;
+    std::unordered_set<qmdd::node_handle, node_hasher> declared;
     
-    if (root == true_node)
+    fprintf(f, "  root [shape=point,width=0.001,height=0.001];\n");
+    fprintf(f, "  root -> n%x [label=\"%s\"];\n", root.v.value, dd.to_string(root.w).c_str());
+
+    if (root.v == true_node)
     {
-        fprintf(f, "  n%x [label=\"1\",shape=box];\n", true_node);
+        fprintf(f, "  n%x [label=\"1\",shape=box];\n", true_node.value);
     }
     else
     {
-        fprintf(f, "  n%x [label=\"%s\",shape=circle];\n", root, spec.variable_names[dd.get_var(root)].c_str());
+        fprintf(f, "  n%x [label=\"%s\",shape=circle];\n", root.v.value, spec.variable_names[dd.get_var(root.v)].c_str());
     }
 
-    declared.insert(root);
+    declared.insert(root.v);
 
     while (!nodes2add.empty())
     {
@@ -991,23 +1467,22 @@ void write_dot(
         qmdd::node_handle children[4];
         dd.get_children(n, children);
 
-        qmdd::weight_t weights[4];
+        qmdd::weight_handle weights[4];
         dd.get_weights(n, weights);
 
         for (int child_idx = 0; child_idx < 4; child_idx++)
         {
             qmdd::node_handle child = children[child_idx];
-            qmdd::weight_t weight = weights[child_idx];
 
             if (declared.insert(child).second)
             {
                 if (child == true_node)
                 {
-                    fprintf(f, "  n%x [label=\"1\",shape=box];\n", true_node);
+                    fprintf(f, "  n%x [label=\"1\",shape=box];\n", true_node.value);
                 }
                 else
                 {
-                    fprintf(f, "  n%x [label=\"%s\",shape=circle];\n", child, spec.variable_names[dd.get_var(root)].c_str());
+                    fprintf(f, "  n%x [label=\"%s\",shape=circle];\n", child.value, spec.variable_names[dd.get_var(root.v)].c_str());
                 }
             }
 
@@ -1016,7 +1491,7 @@ void write_dot(
         }
 
         // "invisible" row of nodes for the child weights, then point those invisible nodes to the real nodes.
-        fprintf(f, "  subgraph c%x {\n", n);
+        fprintf(f, "  subgraph c%x {\n", n.value);
         {
             fprintf(f, "    rank=same;\n");
             fprintf(f, "    edge[style=invisible,dir=none];\n");
@@ -1024,7 +1499,7 @@ void write_dot(
 
             for (int i = 0; i < 4; i++)
             {
-                fprintf(f, "    c%x_%d;\n", n, i);
+                fprintf(f, "    c%x_%d;\n", n.value, i);
             }
 
             for (int i = 0; i < 4; i++)
@@ -1034,7 +1509,7 @@ void write_dot(
                 else
                     fprintf(f, " -> ");
 
-                fprintf(f, "c%x_%d", n, i);
+                fprintf(f, "c%x_%d", n.value, i);
             }
             fprintf(f, ";\n");
         }
@@ -1042,24 +1517,24 @@ void write_dot(
 
         for (int i = 0; i < 4; i++)
         {
-            if (weights[i] == qmdd::weight_nul())
+            if (weights[i] == qmdd::weight_0_handle)
             {
-                fprintf(f, "  n%x -> c%x_%d [label=\"%s\"];\n", n, n, i, to_string(weights[i]).c_str());
+                fprintf(f, "  n%x -> c%x_%d [label=\"%s\"];\n", n.value, n.value, i, dd.to_string(weights[i]).c_str());
             }
             else
             {
-                fprintf(f, "  n%x -> c%x_%d [label=\"%s\", arrowhead=none];\n", n, n, i, to_string(weights[i]).c_str());
+                fprintf(f, "  n%x -> c%x_%d [label=\"%s\", arrowhead=none];\n", n.value, n.value, i, dd.to_string(weights[i]).c_str());
             }
         }
 
         for (int i = 0; i < 4; i++)
         {
-            if (weights[i] == qmdd::weight_nul())
+            if (weights[i] == qmdd::weight_0_handle)
             {
                 continue;
             }
 
-            fprintf(f, "  c%x_%d -> n%x;\n", n, i, children[i]);
+            fprintf(f, "  c%x_%d -> n%x;\n", n.value, i, children[i].value);
         }
 
         added.insert(n);
@@ -1107,7 +1582,7 @@ int main(int argc, char* argv[]) try
         throw std::runtime_error(std::string(infilename) + ":" + e.what());
     }
 
-    qmdd::node_handle root;
+    qmdd::edge root;
     qmdd dd = decode(spec, &root);
 
     std::string outfilename = std::string(infilename) + ".dot";
