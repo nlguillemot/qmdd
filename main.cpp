@@ -1221,23 +1221,26 @@ public:
 
             edge kro(const edge& e0, const edge& e1)
             {
-                // simplifying assumption
-                assert(x(e0) < x(e1));
+                // kronecker with 0 weight gives 0
+                if (w(e0) == weight_0_handle)
+                    return e0;
+                else if (w(e1) == weight_0_handle)
+                    return e1;
 
+                // kronecker with the "1" terminal as a base case
                 if (term(e0))
                 {
-                    if (w(e0) == weight_0_handle)
-                    {
-                        return e0;
-                    }
-                    else if (w(e0) == weight_1_handle)
-                    {
+                    if (w(e0) == weight_1_handle)
                         return e1;
-                    }
                     else
-                    {
                         return edge{ dd->apply(w(e0), w(e1), weight_op_mul), v(e1) };
-                    }
+                }
+                else if (term(e1))
+                {
+                    if (w(e1) == weight_1_handle)
+                        return e0;
+                    else
+                        return edge{ dd->apply(w(e0), w(e1), weight_op_mul), v(e0) };
                 }
                 
                 node_handle z_children[4];
@@ -1296,7 +1299,7 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
     qmdd::node_handle true_node = dd.get_true();
 
     const qmdd::node_handle identity_children[4]  = { true_node,             true_node,             true_node,             true_node             };
-    const qmdd::weight_handle identity_weights[4] = { qmdd::weight_1_handle, qmdd::weight_0_handle, qmdd::weight_1_handle, qmdd::weight_0_handle };
+    const qmdd::weight_handle identity_weights[4] = { qmdd::weight_1_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_1_handle };
     const qmdd::weight_handle not_weights[4]      = { qmdd::weight_0_handle, qmdd::weight_1_handle, qmdd::weight_1_handle, qmdd::weight_0_handle };
     const qmdd::weight_handle if_false_weights[4] = { qmdd::weight_1_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_0_handle };
     const qmdd::weight_handle if_true_weights[4]  = { qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_1_handle };
@@ -1307,12 +1310,6 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
     {
         qmdd::edge curr_identity{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) };
 
-        if (var_id == spec.num_variables - 1)
-        {
-            root = curr_identity;
-            continue;
-        }
-        
         root = dd.apply(curr_identity, root, qmdd::edge_op_kro);
     }
 
@@ -1482,7 +1479,7 @@ void write_dot(
                 }
                 else
                 {
-                    fprintf(f, "  n%x [label=\"%s\",shape=circle];\n", child.value, spec.variable_names[dd.get_var(root.v)].c_str());
+                    fprintf(f, "  n%x [label=\"%s\",shape=circle];\n", child.value, spec.variable_names[dd.get_var(child)].c_str());
                 }
             }
 
@@ -1495,11 +1492,17 @@ void write_dot(
         {
             fprintf(f, "    rank=same;\n");
             fprintf(f, "    edge[style=invisible,dir=none];\n");
-            fprintf(f, "    node[shape=point,width=0.001,height=0.001];\n");
 
             for (int i = 0; i < 4; i++)
             {
-                fprintf(f, "    c%x_%d;\n", n.value, i);
+                if (weights[i] == qmdd::weight_0_handle)
+                {
+                    fprintf(f, "    c%x_%d[shape=point];\n", n.value, i);
+                }
+                else
+                {
+                    fprintf(f, "    c%x_%d[shape=point,width=0.01,height=0.01];\n", n.value, i);
+                }
             }
 
             for (int i = 0; i < 4; i++)
@@ -1517,14 +1520,7 @@ void write_dot(
 
         for (int i = 0; i < 4; i++)
         {
-            if (weights[i] == qmdd::weight_0_handle)
-            {
-                fprintf(f, "  n%x -> c%x_%d [label=\"%s\"];\n", n.value, n.value, i, dd.to_string(weights[i]).c_str());
-            }
-            else
-            {
-                fprintf(f, "  n%x -> c%x_%d [label=\"%s\", arrowhead=none];\n", n.value, n.value, i, dd.to_string(weights[i]).c_str());
-            }
+            fprintf(f, "  n%x -> c%x_%d [label=\"%s\", arrowhead=none];\n", n.value, n.value, i, dd.to_string(weights[i]).c_str());
         }
 
         for (int i = 0; i < 4; i++)

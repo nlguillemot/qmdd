@@ -20,6 +20,9 @@
     <None Include="id2.tfc">
       <Filter>tests</Filter>
     </None>
+    <None Include="id3.tfc">
+      <Filter>tests</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="tests">
