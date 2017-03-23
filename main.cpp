@@ -1219,9 +1219,89 @@ public:
                 return weight_0_handle;
             }
 
+            edge add(const edge& e0, const edge& e1)
+            {
+                // make it so that the "1" literal is always on the left side
+                if (!term(e0) && term(e1))
+                    return add(e1, e0);
+
+                // addition with 0 always returns other input
+                if (w(e0) == weight_0_handle)
+                    return e1;
+                else if (w(e1) == weight_0_handle)
+                    return e0;
+
+                // if the vertices are the same we can just add their weights
+                if (v(e0) == v(e1))
+                    return edge{ dd->apply(w(e0), w(e1), weight_op_add), v(e0) };
+
+                // identify top variable for the result of this operation
+                int top = x(e0) < x(e1) ? x(e0) : x(e1);
+
+                // recursively add the 4 quadrants
+                node_handle z_children[4];
+                weight_handle z_weights[4];
+                for (int i = 0; i < 4; i++)
+                {
+                    edge q0;
+                    if (term(e0) || x(e0) != top)
+                        q0 = e0;
+                    else
+                        q0 = edge{ dd->apply(w(e0), w(Ei(e0, i)), weight_op_mul), v(Ei(e0, i)) };
+
+                    edge q1;
+                    if (term(e1) || x(e1) != top)
+                        q1 = e1;
+                    else
+                        q1 = edge{ dd->apply(w(e1), w(Ei(e1, i)), weight_op_mul), v(Ei(e1, i)) };
+
+                    edge zi = dd->apply(q0, q1, edge_op_add);
+                    z_children[i] = zi.v;
+                    z_weights[i] = zi.w;
+                }
+
+                // normalize weights
+                weight_handle new_weight = normalize(z_weights);
+                new_weight = dd->apply(new_weight, w(e0), weight_op_mul);
+
+                // make the new node
+                node_handle new_node = dd->make_node(top, z_children, z_weights);
+
+                return edge{ new_weight, new_node };
+            }
+
+            edge mul(const edge& e0, const edge& e1)
+            {
+                // make it so that the "1" literal is always on the left side
+                if (!term(e0) && term(e1))
+                    return mul(e1, e0);
+
+                // multiplication with 0 always returns 0
+                if (w(e0) == weight_0_handle)
+                    return e0;
+                else if (w(e1) == weight_0_handle)
+                    return e1;
+
+                // multiplication with "1" terminal as base case
+                if (term(e0))
+                {
+                    if (w(e0) == weight_1_handle)
+                        return e1; // avoid multiplication for the case of multiplying by 1
+                    else
+                        return edge{ dd->apply(w(e0), w(e1), weight_op_mul), v(e1) };
+                }
+
+                // TODO: multiplication stuff
+                return edge{ invalid_weight, invalid_node };
+            }
+
             edge kro(const edge& e0, const edge& e1)
             {
-                // kronecker with 0 weight gives 0
+                // make it so the "1" literal is always on the left side
+                if (!term(e0) && term(e1))
+                    return kro(e1, e0);
+
+                // kronecker with 0 always gives 0
                 if (w(e0) == weight_0_handle)
                     return e0;
                 else if (w(e1) == weight_0_handle)
@@ -1231,18 +1311,15 @@ public:
                 if (term(e0))
                 {
                     if (w(e0) == weight_1_handle)
-                        return e1;
+                        return e1; // avoid multiplication for the case of multiplying by 1
                     else
                         return edge{ dd->apply(w(e0), w(e1), weight_op_mul), v(e1) };
                 }
-                else if (term(e1))
-                {
-                    if (w(e1) == weight_1_handle)
-                        return e0;
-                    else
-                        return edge{ dd->apply(w(e0), w(e1), weight_op_mul), v(e0) };
-                }
                 
+                // simplifying assumption to avoid having to determine which variable is the top one
+                assert(x(e0) < x(e1));
+
+                // recursively kronecker
                 node_handle z_children[4];
                 weight_handle z_weights[4];
                 for (int i = 0; i < 4; i++)
@@ -1252,13 +1329,15 @@ public:
                     z_weights[i] = zi.w;
                 }
 
+                // normalize weights
                 weight_handle new_weight = normalize(z_weights);
                 new_weight = dd->apply(new_weight, w(e0), weight_op_mul);
 
+                // make the new node
                 node_handle new_node = dd->make_node(x(e0), z_children, z_weights);
 
                 return edge{ new_weight, new_node };
-            };
+            }
         };
 
         edge found = computedtb.find(e0, e1, op);
@@ -1271,7 +1350,15 @@ public:
 
         edge new_edge;
 
-        if (op == edge_op_kro)
+        if (op == edge_op_add)
+        {
+            new_edge = helper.add(e0, e1);
+        }
+        else if (op == edge_op_mul)
+        {
+            new_edge = helper.mul(e0, e1);
+        }
+        else if (op == edge_op_kro)
         {
             new_edge = helper.kro(e0, e1);
         }
@@ -1344,32 +1431,72 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
             assert(last_param - first_param >= 1);
 
             int target_var_id = *(last_param - 1);
-            
-            qmdd::node_handle target_identity_handle = dd.make_node(target_var_id, identity_children, identity_weights);
-            qmdd::node_handle target_not_handle = dd.make_node(target_var_id, identity_children, not_weights);
+            const int* next_control_var_id = last_param - 2;
+
+            qmdd::edge active_gate = qmdd::edge{ qmdd::weight_1_handle, true_node };
+            qmdd::edge inactive_gate = qmdd::edge{ qmdd::weight_1_handle, true_node };
 
             for (int var_id = spec.num_variables - 1; var_id >= 0; var_id--)
             {
+                bool is_control = false;
+                if (next_control_var_id >= first_param && *next_control_var_id == var_id)
+                {
+                    is_control = true;
+                    next_control_var_id -= 1;
+                }
+
                 // variables below the target
                 if (var_id > target_var_id)
                 {
+                    if (is_control)
+                    {
+
+                    }
+                    else
+                    {
+                        active_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) }, active_gate, qmdd::edge_op_kro);
+                        inactive_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) }, inactive_gate, qmdd::edge_op_kro);
+                    }
                     continue;
                 }
 
                 // the target variable
                 if (var_id == target_var_id)
                 {
-                    // TODO: point children to QMDDs constructed below it
-                    root = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(target_var_id, identity_children, not_weights) };
+                    active_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, not_weights) }, active_gate, qmdd::edge_op_kro);
+
+                    if (var_id == spec.num_variables - 1)
+                    {
+                        // edge case: no nodes below the not
+                        inactive_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) }, qmdd::edge{ qmdd::weight_0_handle, true_node }, qmdd::edge_op_kro);
+                    }
+                    else
+                    {
+                        inactive_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) }, inactive_gate, qmdd::edge_op_kro);
+                    }
+
+                    // TODO: only add when there is divergence?
+                    //active_gate = dd.apply(active_gate, inactive_gate, qmdd::edge_op_add);
                     continue;
                 }
 
                 // variables above the target
                 if (var_id < target_var_id)
                 {
+                    if (is_control)
+                    {
+
+                    }
+                    else
+                    {
+                        active_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) }, active_gate, qmdd::edge_op_kro);
+                    }
                     continue;
                 }
             }
+
+            root = active_gate;
+            // root = dd.apply(gate, root, qmdd::edge_op_mul);
 
             break;
         }
