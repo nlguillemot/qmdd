@@ -3,5 +3,5 @@
 .o a,b
 .c
 BEGIN
-t2 a,b
+t2 b,a
 END

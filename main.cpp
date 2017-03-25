@@ -1387,17 +1387,18 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
 
     const qmdd::node_handle identity_children[4]  = { true_node,             true_node,             true_node,             true_node             };
     const qmdd::weight_handle identity_weights[4] = { qmdd::weight_1_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_1_handle };
-    const qmdd::weight_handle not_weights[4]      = { qmdd::weight_0_handle, qmdd::weight_1_handle, qmdd::weight_1_handle, qmdd::weight_0_handle };
-    const qmdd::weight_handle if_false_weights[4] = { qmdd::weight_1_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_0_handle };
-    const qmdd::weight_handle if_true_weights[4]  = { qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_1_handle };
+
+    qmdd::edge root = qmdd::edge{ qmdd::weight_1_handle, true_node };
 
     // initialize circuit with p^n by p^n identity
-    qmdd::edge root = qmdd::edge{ qmdd::weight_1_handle, true_node };
+    std::vector<qmdd::edge> identitySubtree(spec.num_variables + 1);
+    identitySubtree[spec.num_variables] = root;
     for (int var_id = spec.num_variables - 1; var_id >= 0; var_id--)
     {
         qmdd::edge curr_identity{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) };
 
         root = dd.apply(curr_identity, root, qmdd::edge_op_kro);
+        identitySubtree[var_id] = root;
     }
 
     for (int gate_stream_idx = 0; gate_stream_idx < spec.gate_stream.size(); )
@@ -1434,7 +1435,7 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
             const int* next_control_var_id = last_param - 2;
 
             qmdd::edge active_gate = qmdd::edge{ qmdd::weight_1_handle, true_node };
-            qmdd::edge inactive_gate = qmdd::edge{ qmdd::weight_1_handle, true_node };
+            qmdd::edge inactive_gate = qmdd::edge{ qmdd::weight_0_handle, true_node };
 
             for (int var_id = spec.num_variables - 1; var_id >= 0; var_id--)
             {
@@ -1450,12 +1451,34 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
                 {
                     if (is_control)
                     {
+                        if (active_gate.w != qmdd::weight_0_handle)
+                        {
+                            qmdd::node_handle children[4] = { true_node, true_node, true_node, active_gate.v };
+                            qmdd::weight_handle weights[4] = { qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, active_gate.w };
+                            active_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
+                        }
 
+                        {
+                            qmdd::node_handle children[4] = { identitySubtree[var_id + 1].v, true_node, true_node, inactive_gate.v };
+                            qmdd::weight_handle weights[4] = { identitySubtree[var_id + 1].w, qmdd::weight_0_handle, qmdd::weight_0_handle, inactive_gate.w };
+                            inactive_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
+                        }
                     }
                     else
                     {
-                        active_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) }, active_gate, qmdd::edge_op_kro);
-                        inactive_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) }, inactive_gate, qmdd::edge_op_kro);
+                        if (active_gate.w != qmdd::weight_0_handle)
+                        {
+                            qmdd::node_handle children[4] = { active_gate.v, true_node, true_node, active_gate.v };
+                            qmdd::weight_handle weights[4] = { active_gate.w, qmdd::weight_0_handle, qmdd::weight_0_handle, active_gate.w };
+                            active_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
+                        }
+
+                        if (inactive_gate.w != qmdd::weight_0_handle)
+                        {
+                            qmdd::node_handle children[4] = { inactive_gate.v, true_node, true_node, inactive_gate.v };
+                            qmdd::weight_handle weights[4] = { inactive_gate.w, qmdd::weight_0_handle, qmdd::weight_0_handle, inactive_gate.w };
+                            inactive_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
+                        }
                     }
                     continue;
                 }
@@ -1463,20 +1486,13 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
                 // the target variable
                 if (var_id == target_var_id)
                 {
-                    active_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, not_weights) }, active_gate, qmdd::edge_op_kro);
-
-                    if (var_id == spec.num_variables - 1)
+                    if (active_gate.w != qmdd::weight_0_handle || inactive_gate.w != qmdd::weight_0_handle)
                     {
-                        // edge case: no nodes below the not
-                        inactive_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) }, qmdd::edge{ qmdd::weight_0_handle, true_node }, qmdd::edge_op_kro);
-                    }
-                    else
-                    {
-                        inactive_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) }, inactive_gate, qmdd::edge_op_kro);
+                        qmdd::node_handle children[4] = { inactive_gate.v, active_gate.v, active_gate.v, inactive_gate.v };
+                        qmdd::weight_handle weights[4] = { inactive_gate.w, active_gate.w, active_gate.w, inactive_gate.w };
+                        active_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
                     }
 
-                    // TODO: only add when there is divergence?
-                    //active_gate = dd.apply(active_gate, inactive_gate, qmdd::edge_op_add);
                     continue;
                 }
 
@@ -1485,11 +1501,20 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
                 {
                     if (is_control)
                     {
-
+                        {
+                            qmdd::node_handle children[4] = { identitySubtree[var_id + 1].v, true_node, true_node, active_gate.v };
+                            qmdd::weight_handle weights[4] = { identitySubtree[var_id + 1].w, qmdd::weight_0_handle, qmdd::weight_0_handle, active_gate.w };
+                            active_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
+                        }
                     }
                     else
                     {
-                        active_gate = dd.apply(qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) }, active_gate, qmdd::edge_op_kro);
+                        if (active_gate.w != qmdd::weight_0_handle)
+                        {
+                            qmdd::node_handle children[4] = { active_gate.v, true_node, true_node, active_gate.v };
+                            qmdd::weight_handle weights[4] = { active_gate.w, qmdd::weight_0_handle, qmdd::weight_0_handle, active_gate.w };
+                            active_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
+                        }
                     }
                     continue;
                 }

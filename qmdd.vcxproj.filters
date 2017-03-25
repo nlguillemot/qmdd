@@ -29,6 +29,27 @@
     <None Include="not1id1.tfc">
       <Filter>tests</Filter>
     </None>
+    <None Include="id1not1id1.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="id1cnot1.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="cnot1id1.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="notc.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="notcc.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="toffoli.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="cnotc.tfc">
+      <Filter>tests</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="tests">

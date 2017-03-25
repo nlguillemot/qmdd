@@ -74,14 +74,21 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="cnot.tfc" />
+    <None Include="cnot1id1.tfc" />
+    <None Include="cnotc.tfc" />
     <None Include="id1.tfc" />
+    <None Include="id1cnot1.tfc" />
     <None Include="id1not1.tfc" />
+    <None Include="id1not1id1.tfc" />
     <None Include="id2.tfc" />
     <None Include="id3.tfc" />
     <None Include="not.tfc" />
     <None Include="not1id1.tfc" />
+    <None Include="notc.tfc" />
+    <None Include="notcc.tfc" />
     <None Include="packages.config" />
     <None Include="rd32.tfc" />
+    <None Include="toffoli.tfc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
