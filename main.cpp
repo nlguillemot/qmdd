@@ -565,6 +565,9 @@ program_spec parse(const char* txt)
 class qmdd
 {
 public:
+    // to configure p-valued logic
+    static const int p = 2;
+
     struct node_handle
     { 
         uint32_t value;
@@ -595,17 +598,30 @@ public:
         }
     };
 
+    static constexpr node_handle invalid_node = node_handle{ uint32_t(-1) };
+    static constexpr weight_handle invalid_weight = weight_handle{ uint32_t(-1) };
+
+    static constexpr weight_handle weight_0_handle = weight_handle{ 0 };
+    static constexpr weight_handle weight_1_handle = weight_handle{ 1 };
+
     struct edge
     {
         weight_handle w;
         node_handle v;
-    };
-    
-    static constexpr node_handle invalid_node = node_handle{ uint32_t(-1) };
-    static constexpr weight_handle invalid_weight = weight_handle{ uint32_t(-1) };
 
-    static constexpr weight_handle weight_0_handle = weight_handle{0};
-    static constexpr weight_handle weight_1_handle = weight_handle{1};
+        edge()
+            : w(invalid_weight)
+            , v(invalid_node)
+        { }
+
+        edge(weight_handle ww, node_handle vv)
+            : w(ww), v(vv)
+        { }
+
+        explicit edge(node_handle vv)
+            : w(weight_1_handle), v(vv)
+        { }
+    };
 
     enum edge_op
     {
@@ -858,8 +874,8 @@ private:
         struct node
         {
             uint32_t var;
-            std::array<node_handle,4> children;
-            std::array<weight_handle,4> weights;
+            std::array<node_handle,p*p> children;
+            std::array<weight_handle, p*p> weights;
 
             bool operator==(const node& other) const
             {
@@ -917,14 +933,11 @@ private:
 
             true_node = pool_alloc();
             true_node->var = num_vars;
-            true_node->children[0] = to_handle(true_node);
-            true_node->children[1] = to_handle(true_node);
-            true_node->children[2] = to_handle(true_node);
-            true_node->children[3] = to_handle(true_node);
-            true_node->weights[0] = weight_1_handle;
-            true_node->weights[1] = weight_1_handle;
-            true_node->weights[2] = weight_1_handle;
-            true_node->weights[3] = weight_1_handle;
+            for (int i = 0; i < p*p; i++)
+            {
+                true_node->children[i] = to_handle(true_node);
+                true_node->weights[i] = weight_1_handle;
+            }
         }
 
         node_handle get_true() const
@@ -937,10 +950,10 @@ private:
             return to_node(h)->var;
         }
 
-        void get_children(node_handle h, node_handle children[4]) const
+        void get_children(node_handle h, node_handle children[p*p]) const
         {
             const node* n = to_node(h);
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < p*p; i++)
             {
                 children[i] = n->children[i];
             }
@@ -951,10 +964,10 @@ private:
             return to_node(h)->children[i];
         }
 
-        void get_weights(node_handle h, weight_handle weights[4]) const
+        void get_weights(node_handle h, weight_handle weights[p*p]) const
         {
             const node* n = to_node(h);
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < p*p; i++)
             {
                 weights[i] = n->weights[i];
             }
@@ -965,21 +978,18 @@ private:
             return to_node(h)->weights[i];
         }
 
-        node_handle insert(uint32_t var, const node_handle children[4], const weight_handle weights[4])
+        node_handle insert(uint32_t var, const node_handle children[p*p], const weight_handle weights[p*p])
         {
             node n;
             n.var = var;
-            n.children[0] = children[0];
-            n.children[1] = children[1];
-            n.children[2] = children[2];
-            n.children[3] = children[3];
-            n.weights[0] = weights[0];
-            n.weights[1] = weights[1];
-            n.weights[2] = weights[2];
-            n.weights[3] = weights[3];
+            for (int i = 0; i < p*p; i++)
+            {
+                n.children[i] = children[i];
+                n.weights[i] = weights[i];
+            }
 
             uint32_t key = var;
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < p*p; i++)
             {
                 key += children[i].value + weights[i].value;
             }
@@ -1010,7 +1020,7 @@ private:
         edge find(const edge& e0, const edge& e1, edge_op op) const
         {
             // TODO
-            return edge{ invalid_weight, invalid_node };
+            return edge(invalid_weight, invalid_node);
         }
 
         void insert(const edge& e0, const edge& e1, edge_op op, const edge& r)
@@ -1145,12 +1155,17 @@ public:
     node_handle make_node(uint32_t var, const node_handle children[4], const weight_handle weights[4])
     {
         // enforce no-redundancy constraint of QMDD
-        if (children[0] == children[1] &&
-            children[1] == children[2] &&
-            children[2] == children[3] &&
-            weights[0] == weights[1] &&
-            weights[1] == weights[2] &&
-            weights[2] == weights[3])
+        bool redundant = true;
+        for (int i = 0; i < p*p - 1; i++)
+        {
+            if (children[i] != children[i + 1] ||
+                weights[i] != weights[i + 1])
+            {
+                redundant = false;
+                break;
+            }
+        }
+        if (redundant)
         {
             return children[0];
         }
@@ -1183,7 +1198,7 @@ public:
 
             edge Ei(const edge& e, int i)
             {
-                return edge{ dd->uniquetb.get_weight(e.v, i), dd->uniquetb.get_child(e.v, i) };
+                return edge(dd->uniquetb.get_weight(e.v, i), dd->uniquetb.get_child(e.v, i));
             }
 
             bool term(const edge& e)
@@ -1191,9 +1206,9 @@ public:
                 return e.v == dd->get_true();
             }
 
-            weight_handle normalize(weight_handle children[4])
+            weight_handle normalize(weight_handle children[p*p])
             {
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < p*p; i++)
                 {
                     if (children[i] != weight_0_handle)
                     {
@@ -1203,7 +1218,7 @@ public:
                         children[i] = weight_1_handle;
 
                         // normalize the other children
-                        for (int j = i + 1; j < 4; j++)
+                        for (int j = i + 1; j < p*p; j++)
                         {
                             if (children[j] != weight_0_handle)
                             {
@@ -1216,7 +1231,7 @@ public:
                 }
 
                 assert(!"expected at least one non-zero weight");
-                return weight_0_handle;
+                return invalid_weight;
             }
 
             edge add(const edge& e0, const edge& e1)
@@ -1233,27 +1248,38 @@ public:
 
                 // if the vertices are the same we can just add their weights
                 if (v(e0) == v(e1))
-                    return edge{ dd->apply(w(e0), w(e1), weight_op_add), v(e0) };
+                    return edge(dd->apply(w(e0), w(e1), weight_op_add), v(e0));
 
                 // identify top variable for the result of this operation
-                int top = x(e0) < x(e1) ? x(e0) : x(e1);
+                int top;
+                weight_handle top_weight;
+                if (x(e0) < x(e1))
+                {
+                    top = x(e0);
+                    top_weight = w(e0);
+                }
+                else
+                {
+                    top = x(e1);
+                    top_weight = w(e1);
+                }
 
-                // recursively add the 4 quadrants
-                node_handle z_children[4];
-                weight_handle z_weights[4];
-                for (int i = 0; i < 4; i++)
+                // recursively add the p*p quadrants
+                node_handle z_children[p*p];
+                weight_handle z_weights[p*p];
+                for (int i = 0; i < p*p; i++)
                 {
                     edge q0;
                     if (term(e0) || x(e0) != top)
                         q0 = e0;
                     else
-                        q0 = edge{ dd->apply(w(e0), w(Ei(e0, i)), weight_op_mul), v(Ei(e0, i)) };
+                        q0 = edge(dd->apply(w(e0), w(Ei(e0, i)), weight_op_mul), v(Ei(e0, i)));
 
                     edge q1;
                     if (term(e1) || x(e1) != top)
                         q1 = e1;
                     else
-                        q1 = edge{ dd->apply(w(e1), w(Ei(e1, i)), weight_op_mul), v(Ei(e1, i)) };
+                        q1 = edge(dd->apply(w(e1), w(Ei(e1, i)), weight_op_mul), v(Ei(e1, i)));
 
                     edge zi = dd->apply(q0, q1, edge_op_add);
                     z_children[i] = zi.v;
@@ -1262,12 +1288,12 @@ public:
 
                 // normalize weights
                 weight_handle new_weight = normalize(z_weights);
-                new_weight = dd->apply(new_weight, w(e0), weight_op_mul);
+                new_weight = dd->apply(new_weight, top_weight, weight_op_mul);
 
                 // make the new node
                 node_handle new_node = dd->make_node(top, z_children, z_weights);
 
-                return edge{ new_weight, new_node };
+                return edge(new_weight, new_node);
             }
 
             edge mul(const edge& e0, const edge& e1)
@@ -1288,11 +1314,60 @@ public:
                     if (w(e0) == weight_1_handle)
                         return e1; // avoid multiplication for the case of multiplying by 1
                     else
-                        return edge{ dd->apply(w(e0), w(e1), weight_op_mul), v(e1) };
+                        return edge(dd->apply(w(e0), w(e1), weight_op_mul), v(e1));
                 }
 
-                // TODO: multiplication stuff
-                return edge{ invalid_weight, invalid_node };
+                // identify top variable for the result of this operation
+                int top;
+                weight_handle top_weight;
+                if (x(e0) < x(e1))
+                {
+                    top = x(e0);
+                    top_weight = w(e0);
+                }
+                else
+                {
+                    top = x(e1);
+                    top_weight = w(e1);
+                }
+
+                // recursively multiply the p*p quadrants
+                node_handle z_children[p*p];
+                weight_handle z_weights[p*p];
+                for (int i = 0; i < p * p; i += p)
+                {
+                    for (int j = 0; j < p; j++)
+                    {
+                        edge zij = edge(weight_0_handle, dd->get_true());
+                        for (int k = 0; k < p; k++)
+                        {
+                            edge q0;
+                            if (term(e0) || x(e0) != top)
+                                q0 = e0;
+                            else
+                                q0 = edge(dd->apply(w(e0), w(Ei(e0, i + k)), weight_op_mul), v(Ei(e0, i + k)));
+
+                            edge q1;
+                            if (term(e1) || x(e1) != top)
+                                q1 = e1;
+                            else
+                                q1 = edge(dd->apply(w(e1), w(Ei(e1, j + p*k)), weight_op_mul), v(Ei(e1, j + p*k)));
+
+                            edge q0q1 = dd->apply(q0, q1, edge_op_mul);
+                            zij = dd->apply(zij, q0q1, edge_op_add);
+                        }
+                        z_children[i + j] = zij.v;
+                        z_weights[i + j] = zij.w;
+                    }
+                }
+
+                // normalize weights
+                weight_handle new_weight = normalize(z_weights);
+                new_weight = dd->apply(new_weight, top_weight, weight_op_mul);
+
+                node_handle new_node = dd->make_node(top, z_children, z_weights);
+
+                return edge(new_weight, new_node);
             }
 
             edge kro(const edge& e0, const edge& e1)
@@ -1313,16 +1388,16 @@ public:
                     if (w(e0) == weight_1_handle)
                         return e1; // avoid multiplication for the case of multiplying by 1
                     else
-                        return edge{ dd->apply(w(e0), w(e1), weight_op_mul), v(e1) };
+                        return edge(dd->apply(w(e0), w(e1), weight_op_mul), v(e1));
                 }
                 
                 // simplifying assumption to avoid having to determine which variable is the top one
                 assert(x(e0) < x(e1));
 
                 // recursively kronecker
-                node_handle z_children[4];
-                weight_handle z_weights[4];
-                for (int i = 0; i < 4; i++)
+                node_handle z_children[p*p];
+                weight_handle z_weights[p*p];
+                for (int i = 0; i < p*p; i++)
                 {
                     edge zi = dd->apply(Ei(e0, i), e1, edge_op_kro);
                     z_children[i] = zi.v;
@@ -1336,7 +1411,7 @@ public:
                 // make the new node
                 node_handle new_node = dd->make_node(x(e0), z_children, z_weights);
 
-                return edge{ new_weight, new_node };
+                return edge(new_weight, new_node);
             }
         };
 
@@ -1365,7 +1440,7 @@ public:
         else
         {
             assert(!"unimplemented op");
-            return edge{ invalid_weight, invalid_node };
+            return edge(invalid_weight, invalid_node);
         }
 
         computedtb.insert(e0, e1, op, new_edge);
@@ -1381,23 +1456,72 @@ public:
 
 qmdd decode(const program_spec& spec, qmdd::edge* root_out)
 {
+    using node_handle = qmdd::node_handle;
+    using weight_handle = qmdd::weight_handle;
+    using edge = qmdd::edge;
+
+    static const int p = qmdd::p;
+    static const weight_handle weight_0_handle = qmdd::weight_0_handle;
+    static const weight_handle weight_1_handle = qmdd::weight_1_handle;
+
     qmdd dd(spec.num_variables);
 
-    qmdd::node_handle true_node = dd.get_true();
+    node_handle true_node = dd.get_true();
 
-    const qmdd::node_handle identity_children[4]  = { true_node,             true_node,             true_node,             true_node             };
-    const qmdd::weight_handle identity_weights[4] = { qmdd::weight_1_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_1_handle };
+    node_handle identity_children[p * p];
+    weight_handle identity_weights[p * p];
+    weight_handle not_weights[p * p];
+    for (int i = 0; i < p; i++)
+    {
+        for (int j = 0; j < p; j++)
+        {
+            identity_children[i * p + j] = true_node;
 
-    qmdd::edge root = qmdd::edge{ qmdd::weight_1_handle, true_node };
+            if (i == j)
+            {
+                identity_weights[i * p + j] = weight_1_handle;
+                not_weights[i * p + j] = weight_0_handle;
+            }
+            else
+            {
+                identity_weights[i * p + j] = weight_0_handle;
+                not_weights[i * p + j] = weight_1_handle;
+            }
+        }
+    }
+
+    weight_handle zero_weights[p * p];
+    for (int i = 0; i < p * p; i++)
+    {
+        zero_weights[i] = weight_0_handle;
+    }
+
+    weight_handle if_false_weights[p * p];
+    for (int i = 0; i < p * p; i++)
+    {
+        if (i == 0)
+            if_false_weights[i] = weight_1_handle;
+        else
+            if_false_weights[i] = weight_0_handle;
+    }
+
+    weight_handle if_true_weights[p * p];
+    for (int i = 0; i < p * p; i++)
+    {
+        if (i == p * p - 1)
+            if_true_weights[i] = weight_1_handle;
+        else
+            if_true_weights[i] = weight_0_handle;
+    }
+
+    edge root = edge(weight_1_handle, true_node);
 
     // initialize circuit with p^n by p^n identity
-    std::vector<qmdd::edge> identitySubtree(spec.num_variables + 1);
+    std::vector<edge> identitySubtree(spec.num_variables + 1);
     identitySubtree[spec.num_variables] = root;
     for (int var_id = spec.num_variables - 1; var_id >= 0; var_id--)
     {
-        qmdd::edge curr_identity{ qmdd::weight_1_handle, dd.make_node(var_id, identity_children, identity_weights) };
-
-        root = dd.apply(curr_identity, root, qmdd::edge_op_kro);
+        root = dd.apply(edge(dd.make_node(var_id, identity_children, identity_weights)), root, qmdd::edge_op_kro);
         identitySubtree[var_id] = root;
     }
 
@@ -1418,13 +1542,13 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
         {
 #ifdef SHOW_INSTRS
             printf("t%d ", param_count);
-            for (const int* p = first_param; p < last_param; p++)
+            for (const int* param = first_param; param < last_param; param++)
             {
-                if (p != first_param)
+                if (param != first_param)
                 {
                     printf(",");
                 }
-                printf("%s", spec.variable_names[*p].c_str());
+                printf("%s", spec.variable_names[*param].c_str());
             }
             printf("\n");
 #endif
@@ -1434,8 +1558,8 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
             int target_var_id = *(last_param - 1);
             const int* next_control_var_id = last_param - 2;
 
-            qmdd::edge active_gate = qmdd::edge{ qmdd::weight_1_handle, true_node };
-            qmdd::edge inactive_gate = qmdd::edge{ qmdd::weight_0_handle, true_node };
+            edge active_gate = edge(weight_1_handle, true_node);
+            edge inactive_gate = edge(weight_0_handle, true_node);
 
             for (int var_id = spec.num_variables - 1; var_id >= 0; var_id--)
             {
@@ -1446,82 +1570,47 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
                     next_control_var_id -= 1;
                 }
 
-                // variables below the target
-                if (var_id > target_var_id)
+                if (var_id > target_var_id) // variables below the target
                 {
                     if (is_control)
                     {
-                        if (active_gate.w != qmdd::weight_0_handle)
-                        {
-                            qmdd::node_handle children[4] = { true_node, true_node, true_node, active_gate.v };
-                            qmdd::weight_handle weights[4] = { qmdd::weight_0_handle, qmdd::weight_0_handle, qmdd::weight_0_handle, active_gate.w };
-                            active_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
-                        }
+                        active_gate = dd.apply(edge(dd.make_node(var_id, identity_children, if_true_weights)), active_gate, qmdd::edge_op_kro);
 
-                        {
-                            qmdd::node_handle children[4] = { identitySubtree[var_id + 1].v, true_node, true_node, inactive_gate.v };
-                            qmdd::weight_handle weights[4] = { identitySubtree[var_id + 1].w, qmdd::weight_0_handle, qmdd::weight_0_handle, inactive_gate.w };
-                            inactive_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
-                        }
+                        inactive_gate = dd.apply(
+                            dd.apply(edge(dd.make_node(var_id, identity_children, if_false_weights)), identitySubtree[var_id + 1], qmdd::edge_op_kro),
+                            dd.apply(edge(dd.make_node(var_id, identity_children, if_true_weights)), inactive_gate, qmdd::edge_op_kro),
+                            qmdd::edge_op_add);
                     }
                     else
                     {
-                        if (active_gate.w != qmdd::weight_0_handle)
-                        {
-                            qmdd::node_handle children[4] = { active_gate.v, true_node, true_node, active_gate.v };
-                            qmdd::weight_handle weights[4] = { active_gate.w, qmdd::weight_0_handle, qmdd::weight_0_handle, active_gate.w };
-                            active_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
-                        }
-
-                        if (inactive_gate.w != qmdd::weight_0_handle)
-                        {
-                            qmdd::node_handle children[4] = { inactive_gate.v, true_node, true_node, inactive_gate.v };
-                            qmdd::weight_handle weights[4] = { inactive_gate.w, qmdd::weight_0_handle, qmdd::weight_0_handle, inactive_gate.w };
-                            inactive_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
-                        }
+                        active_gate = dd.apply(edge(dd.make_node(var_id, identity_children, identity_weights)), active_gate, qmdd::edge_op_kro);
+                        inactive_gate = dd.apply(edge(dd.make_node(var_id, identity_children, identity_weights)), inactive_gate, qmdd::edge_op_kro);
                     }
-                    continue;
                 }
-
-                // the target variable
-                if (var_id == target_var_id)
+                else if (var_id == target_var_id) // the target variable
                 {
-                    if (active_gate.w != qmdd::weight_0_handle || inactive_gate.w != qmdd::weight_0_handle)
-                    {
-                        qmdd::node_handle children[4] = { inactive_gate.v, active_gate.v, active_gate.v, inactive_gate.v };
-                        qmdd::weight_handle weights[4] = { inactive_gate.w, active_gate.w, active_gate.w, inactive_gate.w };
-                        active_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
-                    }
-
-                    continue;
+                    active_gate = dd.apply(
+                        dd.apply(edge(dd.make_node(var_id, identity_children, identity_weights)), inactive_gate, qmdd::edge_op_kro),
+                        dd.apply(edge(dd.make_node(var_id, identity_children, not_weights)), active_gate, qmdd::edge_op_kro),
+                        qmdd::edge_op_add);
                 }
-
-                // variables above the target
-                if (var_id < target_var_id)
+                else if (var_id < target_var_id) // variables above the target
                 {
                     if (is_control)
                     {
-                        {
-                            qmdd::node_handle children[4] = { identitySubtree[var_id + 1].v, true_node, true_node, active_gate.v };
-                            qmdd::weight_handle weights[4] = { identitySubtree[var_id + 1].w, qmdd::weight_0_handle, qmdd::weight_0_handle, active_gate.w };
-                            active_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
-                        }
+                        active_gate = dd.apply(
+                            dd.apply(edge(dd.make_node(var_id, identity_children, if_false_weights)), identitySubtree[var_id + 1], qmdd::edge_op_kro),
+                            dd.apply(edge(dd.make_node(var_id, identity_children, if_true_weights)), active_gate, qmdd::edge_op_kro),
+                            qmdd::edge_op_add);
                     }
                     else
                     {
-                        if (active_gate.w != qmdd::weight_0_handle)
-                        {
-                            qmdd::node_handle children[4] = { active_gate.v, true_node, true_node, active_gate.v };
-                            qmdd::weight_handle weights[4] = { active_gate.w, qmdd::weight_0_handle, qmdd::weight_0_handle, active_gate.w };
-                            active_gate = qmdd::edge{ qmdd::weight_1_handle, dd.make_node(var_id, children, weights) };
-                        }
+                        active_gate = dd.apply(edge(dd.make_node(var_id, identity_children, identity_weights)), active_gate, qmdd::edge_op_kro);
                     }
-                    continue;
                 }
             }
 
-            root = active_gate;
-            // root = dd.apply(gate, root, qmdd::edge_op_mul);
+            root = dd.apply(active_gate, root, qmdd::edge_op_mul);
 
             break;
         }
@@ -1529,13 +1618,13 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
         {
 #ifdef SHOW_INSTRS
             printf("f%d ", param_count);
-            for (const int* p = first_param; p < last_param; p++)
+            for (const int* param = first_param; param < last_param; param++)
             {
-                if (p != first_param)
+                if (param != first_param)
                 {
                     printf(",");
                 }
-                printf("%s", spec.variable_names[*p].c_str());
+                printf("%s", spec.variable_names[*param].c_str());
             }
             printf("\n");
 #endif
@@ -1562,6 +1651,8 @@ void write_dot(
     const qmdd::edge& root,
     const char* fn)
 {
+    static const int p = qmdd::p;
+
     FILE* f = fopen(fn, "w");
 
     if (!f)
@@ -1613,13 +1704,13 @@ void write_dot(
         if (added.find(n) != end(added))
             continue;
 
-        qmdd::node_handle children[4];
+        qmdd::node_handle children[p * p];
         dd.get_children(n, children);
 
-        qmdd::weight_handle weights[4];
+        qmdd::weight_handle weights[p * p];
         dd.get_weights(n, weights);
 
-        for (int child_idx = 0; child_idx < 4; child_idx++)
+        for (int child_idx = 0; child_idx < p * p; child_idx++)
         {
             qmdd::node_handle child = children[child_idx];
 
@@ -1645,7 +1736,7 @@ void write_dot(
             fprintf(f, "    rank=same;\n");
             fprintf(f, "    edge[style=invisible,dir=none];\n");
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < p * p; i++)
             {
                 if (weights[i] == qmdd::weight_0_handle)
                 {
@@ -1657,7 +1748,7 @@ void write_dot(
                 }
             }
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < p * p; i++)
             {
                 if (i == 0)
                     fprintf(f, "    ");
@@ -1670,12 +1761,12 @@ void write_dot(
         }
         fprintf(f, "  }\n");
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < p * p; i++)
         {
             fprintf(f, "  n%x -> c%x_%d [label=\"%s\", arrowhead=none];\n", n.value, n.value, i, dd.to_string(weights[i]).c_str());
         }
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < p * p; i++)
         {
             if (weights[i] == qmdd::weight_0_handle)
             {
