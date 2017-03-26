@@ -1,6 +1,5 @@
 .v a,b,c
 .i a,b,c
 .o a,b,c
-.c
 BEGIN
 END

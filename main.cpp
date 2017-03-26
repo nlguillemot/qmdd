@@ -239,7 +239,7 @@ program_spec parse(const char* txt)
                             throw std::runtime_error("missing input variable listing (.i)");
                         if (!has_output_variable_listing)
                             throw std::runtime_error("missing output variable listing (.o)");
-                        if (!has_constant_input_listing)
+                        if (!has_constant_input_listing && spec.num_inputs != spec.num_variables)
                             throw std::runtime_error("missing constant input variable listing (.c)");
 
                         s = s_begin;
@@ -420,6 +420,7 @@ program_spec parse(const char* txt)
                             }
 
                             spec.variable_constant_input[curr_input_var_id] = cval;
+                            curr_input_var_id += 1;
                         });
 
                         if (curr_input_var_id < spec.num_variables)

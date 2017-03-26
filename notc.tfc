@@ -1,7 +1,6 @@
 .v a,b
 .i a,b
 .o a,b
-.c
 BEGIN
 t2 b,a
 END

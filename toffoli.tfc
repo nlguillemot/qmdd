@@ -1,7 +1,6 @@
 .v a,b,c
 .i a,b,c
 .o a,b,c
-.c
 BEGIN
 t3 a,b,c
 END
