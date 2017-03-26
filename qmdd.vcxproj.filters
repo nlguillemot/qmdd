@@ -65,6 +65,27 @@
     <None Include="cnotid_idcnot.tfc">
       <Filter>tests</Filter>
     </None>
+    <None Include="y.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="yy.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="cy.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="z.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="v.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="vinv.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="vtoffoli.tfc">
+      <Filter>tests</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="tests">

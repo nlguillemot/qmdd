@@ -15,7 +15,11 @@
 enum class gate_opcode : int
 {
     toffoli,
-    fredkin
+    fredkin,
+    pauli_y,
+    pauli_z,
+    sqrtnot,
+    inv_sqrtnot
 };
 
 struct program_spec
@@ -442,15 +446,50 @@ program_spec parse(const char* txt)
                         continue;
                     }
 
-                    // Toffoli gate
-                    if (std::toupper(*s) == 'T')
+                    bool is_toffoli = std::toupper(*s) == 'T';
+                    bool is_fredkin = std::toupper(*s) == 'F';
+                    bool is_y = std::toupper(*s) == 'Y';
+                    bool is_z = std::toupper(*s) == 'Z';
+                    bool is_v = std::toupper(*s) == 'V';
+
+                    // single argument gate
+                    if (is_toffoli || is_y || is_z || is_v)
                     {
                         s++;
+
+                        bool is_notv = false;
+                        if (is_v)
+                        {
+                            if (*s == '\'')
+                            {
+                                is_notv = true;
+                                is_v = false;
+                                s++;
+                            }
+                        }
+
                         int pcnt;
                         s = accept_paramcount(s, &pcnt);
                         s = opt_ws(s);
 
-                        spec.gate_stream.push_back((int)gate_opcode::toffoli);
+                        if (pcnt < 1)
+                        {
+                            throw std::runtime_error("gate needs at least 1 input");
+                        }
+
+                        if (is_toffoli)
+                            spec.gate_stream.push_back((int)gate_opcode::toffoli);
+                        else if (is_y)
+                            spec.gate_stream.push_back((int)gate_opcode::pauli_y);
+                        else if (is_z)
+                            spec.gate_stream.push_back((int)gate_opcode::pauli_z);
+                        else if (is_v)
+                            spec.gate_stream.push_back((int)gate_opcode::sqrtnot);
+                        else if (is_notv)
+                            spec.gate_stream.push_back((int)gate_opcode::inv_sqrtnot);
+                        else
+                            throw std::logic_error("unhandled single argument gate type");
+
                         spec.gate_stream.push_back(pcnt);
 
                         size_t first_param_i = spec.gate_stream.size();
@@ -493,13 +532,18 @@ program_spec parse(const char* txt)
                         continue;
                     }
 
-                    // Fredkin gate
-                    if (std::toupper(*s) == 'F')
+                    // two argument gate
+                    if (is_fredkin)
                     {
                         s++;
                         int pcnt;
                         s = accept_paramcount(s, &pcnt);
                         s = opt_ws(s);
+
+                        if (pcnt < 2)
+                        {
+                            throw std::runtime_error("gate needs at least 2 inputs");
+                        }
 
                         spec.gate_stream.push_back((int)gate_opcode::fredkin);
                         spec.gate_stream.push_back(pcnt);
@@ -641,6 +685,14 @@ public:
         edge_op_kro
     };
 
+    enum weight_op
+    {
+        weight_op_add,
+        weight_op_sub,
+        weight_op_mul,
+        weight_op_div
+    };
+
 private:
     class weight
     {
@@ -650,9 +702,15 @@ private:
             int num;
             int den;
 
+            static int gcd_euclidean(int a, int b)
+            {
+                return b == 0 ? a : gcd_euclidean(b, a % b);
+            }
+
             static int gcd(int a, int b)
             {
-                return b == 0 ? a : gcd(b, a % b);
+                int result = gcd_euclidean(a, b);
+                return result < 0 ? -result : result;
             }
 
         public:
@@ -784,6 +842,11 @@ private:
             , imag(0)
         { }
 
+        weight(int r, int i)
+            : real(r)
+            , imag(i)
+        { }
+
         bool operator==(const weight& other) const
         {
             return real == other.real && imag == other.imag;
@@ -810,6 +873,24 @@ private:
         {
             weight tmp(*this);
             return tmp += other;
+        }
+
+        weight& operator-=(const weight& other)
+        {
+            // (a + bi) - (c + di)
+            // = (a - c) + (b - d)i
+            rational a = real, b = imag, c = other.real, d = other.imag;
+
+            real = a - c;
+            imag = b - d;
+
+            return *this;
+        }
+
+        weight operator-(const weight& other) const
+        {
+            weight tmp(*this);
+            return tmp -= other;
         }
 
         weight& operator*=(const weight& other)
@@ -853,27 +934,67 @@ private:
         {
             std::string s;
 
-            if (real.denominator() == 1)
+            bool displayed_real = false;
+
+            bool share_denom = real.denominator() != 1 && real.denominator() == imag.denominator();
+
+            if (share_denom)
             {
-                s += std::to_string(real.numerator());
+                s += "(";
             }
-            else
+
+            if (real.numerator() != 0 || (real.numerator() == 0 && imag.numerator() == 0))
             {
-                s += std::to_string(real.numerator()) + "/" + std::to_string(real.denominator());
+                displayed_real = true;
+
+                if (real.denominator() == 1 || share_denom)
+                {
+                    s += std::to_string(real.numerator());
+                }
+                else
+                {
+                    s += std::to_string(real.numerator()) + "/" + std::to_string(real.denominator());
+                }
             }
 
             if (imag.numerator() != 0)
             {
-                s += "+";
-
-                if (imag.denominator() == 1)
+                if (imag.numerator() < 0)
                 {
-                    s += std::to_string(imag.numerator()) + "i";
+                    s += "-";
+                }
+                else if (displayed_real)
+                {
+                    s += "+";
+                }
+
+                if (imag.denominator() == 1 || share_denom)
+                {
+                    if (imag.numerator() == 1|| imag.numerator() == -1)
+                    {
+                        s += "i";
+                    }
+                    else
+                    {
+                        s += std::to_string(abs(imag.numerator())) + "i";
+                    }
                 }
                 else
                 {
-                    s += std::to_string(imag.numerator()) + "/" + std::to_string(imag.denominator());
+                    if (imag.numerator() == 1 || imag.numerator() == -1)
+                    {
+                        s += "i/" + std::to_string(imag.denominator());
+                    }
+                    else
+                    {
+                        s += std::to_string(abs(imag.numerator())) + "i/" + std::to_string(imag.denominator());
+                    }
                 }
+            }
+
+            if (share_denom)
+            {
+                s += ")/" + std::to_string(real.denominator());
             }
 
             return s;
@@ -1101,13 +1222,6 @@ private:
         }
     };
 
-    enum weight_op
-    {
-        weight_op_add,
-        weight_op_mul,
-        weight_op_div
-    };
-
     class computed_weights
     {
         struct cache_entry
@@ -1161,40 +1275,6 @@ private:
 
     node_handle true_node;
 
-    weight_handle apply(weight_handle w0, weight_handle w1, weight_op op)
-    {
-        weight_handle found = computedwt.find(w0, w1, op);
-        if (found != invalid_weight)
-        {
-            return found;
-        }
-
-        weight new_weight;
-        if (op == weight_op_add)
-        {
-            new_weight = uniquewt.get_weight(w0) + uniquewt.get_weight(w1);
-        }
-        else if (op == weight_op_mul)
-        {
-            new_weight = uniquewt.get_weight(w0) * uniquewt.get_weight(w1);
-        }
-        else if (op == weight_op_div)
-        {
-            new_weight = uniquewt.get_weight(w0) / uniquewt.get_weight(w1);
-        }
-        else
-        {
-            assert(!"unimplemented op");
-            return invalid_weight;
-        }
-
-        weight_handle w = uniquewt.insert(new_weight);
-
-        computedwt.insert(w0, w1, op, w);
-
-        return w;
-    }
-
 public:
     explicit qmdd(uint32_t num_vars)
     {
@@ -1243,6 +1323,50 @@ public:
 
         // enforce uniqueness constraint of QMDD
         return uniquetb.insert(var, children, weights);
+    }
+
+    weight_handle get_weight_i_handle()
+    {
+        weight weight_i(0, 1);
+        return uniquewt.insert(weight_i);
+    }
+
+    weight_handle apply(weight_handle w0, weight_handle w1, weight_op op)
+    {
+        weight_handle found = computedwt.find(w0, w1, op);
+        if (found != invalid_weight)
+        {
+            return found;
+        }
+
+        weight new_weight;
+        if (op == weight_op_add)
+        {
+            new_weight = uniquewt.get_weight(w0) + uniquewt.get_weight(w1);
+        }
+        else if (op == weight_op_sub)
+        {
+            new_weight = uniquewt.get_weight(w0) - uniquewt.get_weight(w1);
+        }
+        else if (op == weight_op_mul)
+        {
+            new_weight = uniquewt.get_weight(w0) * uniquewt.get_weight(w1);
+        }
+        else if (op == weight_op_div)
+        {
+            new_weight = uniquewt.get_weight(w0) / uniquewt.get_weight(w1);
+        }
+        else
+        {
+            assert(!"unimplemented op");
+            return invalid_weight;
+        }
+
+        weight_handle w = uniquewt.insert(new_weight);
+
+        computedwt.insert(w0, w1, op, w);
+
+        return w;
     }
 
     edge apply(const edge& e0, const edge& e1, edge_op op)
@@ -1340,7 +1464,6 @@ public:
 
                 // normalize weights
                 weight_handle new_weight = normalize(z_weights);
-                new_weight = dd->apply(new_weight, w(e0), weight_op_mul);
 
                 // make the new node
                 node_handle new_node = dd->make_node(x(e0), z_children, z_weights);
@@ -1394,7 +1517,6 @@ public:
 
                 // normalize weights
                 weight_handle new_weight = normalize(z_weights);
-                new_weight = dd->apply(new_weight, w(e0), weight_op_mul);
 
                 node_handle new_node = dd->make_node(x(e0), z_children, z_weights);
 
@@ -1538,6 +1660,44 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
             if_true_weights[i] = weight_0_handle;
     }
 
+    weight_handle y_weights[p * p];
+    if (p == 2)
+    {
+        y_weights[0] = weight_0_handle;
+        y_weights[1] = dd.apply(weight_0_handle, dd.get_weight_i_handle(), qmdd::weight_op_sub);
+        y_weights[2] = dd.get_weight_i_handle();
+        y_weights[3] = weight_0_handle;
+    }
+
+    weight_handle z_weights[p * p];
+    if (p == 2)
+    {
+        z_weights[0] = weight_1_handle;
+        z_weights[1] = weight_0_handle;
+        z_weights[2] = weight_0_handle;
+        z_weights[3] = dd.apply(weight_0_handle, weight_1_handle, qmdd::weight_op_sub);
+    }
+
+    weight_handle sqrtnot_weights[p * p];
+    weight_handle inv_sqrtnot_weights[p * p];
+    if (p == 2)
+    {
+        weight_handle weight_2_handle = dd.apply(weight_1_handle, weight_1_handle, qmdd::weight_op_add);
+
+        weight_handle one_add_i_by_2 = dd.apply(dd.apply(weight_1_handle, dd.get_weight_i_handle(), qmdd::weight_op_add), weight_2_handle, qmdd::weight_op_div);
+        weight_handle one_sub_i_by_2 = dd.apply(dd.apply(weight_1_handle, dd.get_weight_i_handle(), qmdd::weight_op_sub), weight_2_handle, qmdd::weight_op_div);
+        
+        sqrtnot_weights[0] = one_add_i_by_2;
+        sqrtnot_weights[1] = one_sub_i_by_2;
+        sqrtnot_weights[2] = one_sub_i_by_2;
+        sqrtnot_weights[3] = one_add_i_by_2;
+
+        inv_sqrtnot_weights[0] = one_sub_i_by_2;
+        inv_sqrtnot_weights[1] = one_add_i_by_2;
+        inv_sqrtnot_weights[2] = one_add_i_by_2;
+        inv_sqrtnot_weights[3] = one_sub_i_by_2;
+    }
+
     edge root = edge(weight_1_handle, true_node);
 
     // initialize circuit with p^n by p^n identity
@@ -1563,9 +1723,20 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
         switch (opcode)
         {
         case gate_opcode::toffoli:
+        case gate_opcode::pauli_y:
+        case gate_opcode::pauli_z:
+        case gate_opcode::sqrtnot:
+        case gate_opcode::inv_sqrtnot:
         {
 #ifdef SHOW_INSTRS
-            printf("t%d ", param_count);
+            printf("%s%d ", 
+                opcode == gate_opcode::toffoli ? "t" :
+                opcode == gate_opcode::pauli_y ? "y" :
+                opcode == gate_opcode::pauli_z ? "z" :
+                opcode == gate_opcode::sqrtnot ? "v" :
+                opcode == gate_opcode::inv_sqrtnot ? "v\'" :
+                "?",
+                param_count);
             for (const int* param = first_param; param < last_param; param++)
             {
                 if (param != first_param)
@@ -1576,6 +1747,47 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
             }
             printf("\n");
 #endif
+            const weight_handle* gate_weights;
+            if (opcode == gate_opcode::toffoli)
+            {
+                gate_weights = not_weights;
+            }
+            else if (opcode == gate_opcode::pauli_y)
+            {
+                if (p != 2)
+                {
+                    assert(!"y gates not allowed outside of 2-valued logic");
+                }
+                gate_weights = y_weights;
+            }
+            else if (opcode == gate_opcode::pauli_z)
+            {
+                if (p != 2)
+                {
+                    assert(!"z gates not allowed outside of 2-valued logic");
+                }
+                gate_weights = z_weights;
+            }
+            else if (opcode == gate_opcode::sqrtnot)
+            {
+                if (p != 2)
+                {
+                    assert(!"v gates not allowed outside of 2-valued logic");
+                }
+                gate_weights = sqrtnot_weights;
+            }
+            else if (opcode == gate_opcode::inv_sqrtnot)
+            {
+                if (p != 2)
+                {
+                    assert(!"v\' gates not allowed outside of 2-valued logic");
+                }
+                gate_weights = inv_sqrtnot_weights;
+            }
+            else
+            {
+                assert(!"unhandled gate type");
+            }
 
             assert(last_param - first_param >= 1);
 
@@ -1615,7 +1827,7 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
                 {
                     active_gate = dd.apply(
                         dd.apply(edge(dd.make_node(var_id, identity_children, identity_weights)), inactive_gate, qmdd::edge_op_kro),
-                        dd.apply(edge(dd.make_node(var_id, identity_children, not_weights)), active_gate, qmdd::edge_op_kro),
+                        dd.apply(edge(dd.make_node(var_id, identity_children, gate_weights)), active_gate, qmdd::edge_op_kro),
                         qmdd::edge_op_add);
                 }
                 else if (var_id < target_var_id) // variables above the target
@@ -1689,7 +1901,6 @@ void write_dot(
     fprintf(f, "  labelloc=\"t\";\n");
     fprintf(f, "  label=\"%s\";\n", title);
     fprintf(f, "  splines=line;\n");
-    //fprintf(f, "  concentrate=true;\n");
 
     std::vector<qmdd::node_handle> nodes2add = { root.v };
 

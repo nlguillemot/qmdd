@@ -79,6 +79,7 @@
     <None Include="cnotid_idcnot.tfc" />
     <None Include="cnotcnot.tfc" />
     <None Include="cnotnot.tfc" />
+    <None Include="cy.tfc" />
     <None Include="id1.tfc" />
     <None Include="id1cnot1.tfc" />
     <None Include="id1not1.tfc" />
@@ -94,6 +95,12 @@
     <None Include="packages.config" />
     <None Include="rd32.tfc" />
     <None Include="toffoli.tfc" />
+    <None Include="v.tfc" />
+    <None Include="vinv.tfc" />
+    <None Include="vtoffoli.tfc" />
+    <None Include="y.tfc" />
+    <None Include="yy.tfc" />
+    <None Include="z.tfc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
