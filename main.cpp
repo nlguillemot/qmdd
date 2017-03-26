@@ -622,6 +622,16 @@ public:
         explicit edge(node_handle vv)
             : w(weight_1_handle), v(vv)
         { }
+
+        bool operator==(const edge& other) const
+        {
+            return w == other.w && v == other.v;
+        }
+
+        bool operator!=(const edge& other) const
+        {
+            return !(operator==(other));
+        }
     };
 
     enum edge_op
@@ -1017,16 +1027,46 @@ private:
 
     class computed_table
     {
+        struct cache_entry
+        {
+            edge e0;
+            edge e1;
+            edge_op op;
+            edge result;
+        };
+
+        static const uint32_t ctsize = 1024;
+        static_assert((ctsize & (ctsize - 1)) == 0, "ctsize must be a power of two");
+
+        static const uint32_t ctmask = ctsize - 1;
+
+        std::vector<cache_entry> cache;
+
+        static uint32_t hash(const edge& e0, const edge& e1, edge_op op)
+        {
+            return (e0.v.value + e1.v.value + e0.w.value + e1.w.value + op) & ctmask;
+        }
+
     public:
+        computed_table()
+            : cache(ctsize, cache_entry{ edge(), edge(), (edge_op)0, edge() })
+        { }
+
         edge find(const edge& e0, const edge& e1, edge_op op) const
         {
-            // TODO
-            return edge(invalid_weight, invalid_node);
+            uint32_t key = hash(e0, e1, op);
+
+            const cache_entry& entry = cache[key];
+            if (entry.e0 == e0 && entry.e1 == e1 && entry.op == op)
+                return entry.result;
+            else
+                return edge(invalid_weight, invalid_node);
         }
 
         void insert(const edge& e0, const edge& e1, edge_op op, const edge& r)
         {
-            // TODO
+            uint32_t key = hash(e0, e1, op);
+            cache[key] = cache_entry{ e0, e1, op, r };
         }
     };
 
@@ -1070,16 +1110,46 @@ private:
 
     class computed_weights
     {
+        struct cache_entry
+        {
+            weight_handle w0;
+            weight_handle w1;
+            weight_op op;
+            weight_handle result;
+        };
+
+        static const uint32_t ctsize = 1024;
+        static_assert((ctsize & (ctsize - 1)) == 0, "ctsize must be a power of two");
+
+        static const uint32_t ctmask = ctsize - 1;
+
+        std::vector<cache_entry> cache;
+
+        static uint32_t hash(weight_handle w0, weight_handle w1, weight_op op)
+        {
+            return (w0.value + w1.value + op) & ctmask;
+        }
+
     public:
+        computed_weights()
+            : cache(ctsize, cache_entry{ invalid_weight, invalid_weight, (weight_op)0, invalid_weight })
+        { }
+
         weight_handle find(weight_handle w0, weight_handle w1, weight_op op) const
         {
-            // TODO
-            return invalid_weight;
+            uint32_t key = hash(w0, w1, op);
+
+            const cache_entry& entry = cache[key];
+            if (entry.w0 == w0 && entry.w1 == w1 && entry.op == op)
+                return entry.result;
+            else
+                return invalid_weight;
         }
 
         void insert(weight_handle w0, weight_handle w1, weight_op op, weight_handle r)
         {
-            // TODO
+            uint32_t key = hash(w0, w1, op);
+            cache[key] = cache_entry{ w0, w1, op, r };
         }
     };
 
