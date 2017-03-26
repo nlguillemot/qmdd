@@ -1231,56 +1231,37 @@ public:
                     }
                 }
 
-                assert(!"expected at least one non-zero weight");
-                return invalid_weight;
+                // all weights were 0
+                return weight_0_handle;
             }
 
             edge add(const edge& e0, const edge& e1)
             {
-                // make it so that the "1" literal is always on the left side
-                if (!term(e0) && term(e1))
+                if (term(e0))
+                {
+                    // addition with 0 always returns other input
+                    if (w(e0) == weight_0_handle)
+                        return e1;
+                    else if (term(e1))
+                        return edge(dd->apply(w(e0), w(e1), weight_op_add), dd->get_true());
+                }
+
+                // enforce variable order of e0 < e1
+                if (x(e0) > x(e1))
                     return add(e1, e0);
-
-                // addition with 0 always returns other input
-                if (w(e0) == weight_0_handle)
-                    return e1;
-                else if (w(e1) == weight_0_handle)
-                    return e0;
-
-                // if the vertices are the same we can just add their weights
-                if (v(e0) == v(e1))
-                    return edge(dd->apply(w(e0), w(e1), weight_op_add), v(e0));
-
-                // identify top variable for the result of this operation
-                int top;
-                weight_handle top_weight;
-                if (x(e0) < x(e1))
-                {
-                    top = x(e0);
-                    top_weight = w(e0);
-                }
-                else
-                {
-                    top = x(e1);
-                    top_weight = w(e1);
-                }
 
                 // recursively add the p*p quadrants
                 node_handle z_children[p*p];
                 weight_handle z_weights[p*p];
                 for (int i = 0; i < p*p; i++)
                 {
-                    edge q0;
-                    if (term(e0) || x(e0) != top)
-                        q0 = e0;
-                    else
-                        q0 = edge(dd->apply(w(e0), w(Ei(e0, i)), weight_op_mul), v(Ei(e0, i)));
+                    edge q0 = edge(dd->apply(w(e0), w(Ei(e0, i)), weight_op_mul), v(Ei(e0, i)));
 
                     edge q1;
-                    if (term(e1) || x(e1) != top)
-                        q1 = e1;
-                    else
+                    if (x(e0) == x(e1))
                         q1 = edge(dd->apply(w(e1), w(Ei(e1, i)), weight_op_mul), v(Ei(e1, i)));
+                    else
+                        q1 = e1;
 
                     edge zi = dd->apply(q0, q1, edge_op_add);
                     z_children[i] = zi.v;
@@ -1289,48 +1270,31 @@ public:
 
                 // normalize weights
                 weight_handle new_weight = normalize(z_weights);
-                new_weight = dd->apply(new_weight, top_weight, weight_op_mul);
+                new_weight = dd->apply(new_weight, w(e0), weight_op_mul);
 
                 // make the new node
-                node_handle new_node = dd->make_node(top, z_children, z_weights);
+                node_handle new_node = dd->make_node(x(e0), z_children, z_weights);
 
                 return edge(new_weight, new_node);
             }
 
             edge mul(const edge& e0, const edge& e1)
             {
-                // make it so that the "1" literal is always on the left side
-                if (!term(e0) && term(e1))
-                    return mul(e1, e0);
-
-                // multiplication with 0 always returns 0
-                if (w(e0) == weight_0_handle)
-                    return e0;
-                else if (w(e1) == weight_0_handle)
-                    return e1;
-
                 // multiplication with "1" terminal as base case
                 if (term(e0))
                 {
-                    if (w(e0) == weight_1_handle)
+                    // multiplication with 0 always returns 0
+                    if (w(e0) == weight_0_handle)
+                        return e0;
+                    else if (w(e0) == weight_1_handle)
                         return e1; // avoid multiplication for the case of multiplying by 1
                     else
                         return edge(dd->apply(w(e0), w(e1), weight_op_mul), v(e1));
                 }
 
-                // identify top variable for the result of this operation
-                int top;
-                weight_handle top_weight;
-                if (x(e0) < x(e1))
-                {
-                    top = x(e0);
-                    top_weight = w(e0);
-                }
-                else
-                {
-                    top = x(e1);
-                    top_weight = w(e1);
-                }
+                // enforce variable order of e0 < e1
+                if (x(e0) > x(e1))
+                    return add(e1, e0);
 
                 // recursively multiply the p*p quadrants
                 node_handle z_children[p*p];
@@ -1342,17 +1306,13 @@ public:
                         edge zij = edge(weight_0_handle, dd->get_true());
                         for (int k = 0; k < p; k++)
                         {
-                            edge q0;
-                            if (term(e0) || x(e0) != top)
-                                q0 = e0;
-                            else
-                                q0 = edge(dd->apply(w(e0), w(Ei(e0, i + k)), weight_op_mul), v(Ei(e0, i + k)));
+                            edge q0 = edge(dd->apply(w(e0), w(Ei(e0, i + k)), weight_op_mul), v(Ei(e0, i + k)));
 
                             edge q1;
-                            if (term(e1) || x(e1) != top)
-                                q1 = e1;
-                            else
+                            if (x(e0) == x(e1))
                                 q1 = edge(dd->apply(w(e1), w(Ei(e1, j + p*k)), weight_op_mul), v(Ei(e1, j + p*k)));
+                            else
+                                q1 = e1;
 
                             edge q0q1 = dd->apply(q0, q1, edge_op_mul);
                             zij = dd->apply(zij, q0q1, edge_op_add);
@@ -1364,29 +1324,22 @@ public:
 
                 // normalize weights
                 weight_handle new_weight = normalize(z_weights);
-                new_weight = dd->apply(new_weight, top_weight, weight_op_mul);
+                new_weight = dd->apply(new_weight, w(e0), weight_op_mul);
 
-                node_handle new_node = dd->make_node(top, z_children, z_weights);
+                node_handle new_node = dd->make_node(x(e0), z_children, z_weights);
 
                 return edge(new_weight, new_node);
             }
 
             edge kro(const edge& e0, const edge& e1)
             {
-                // make it so the "1" literal is always on the left side
-                if (!term(e0) && term(e1))
-                    return kro(e1, e0);
-
-                // kronecker with 0 always gives 0
-                if (w(e0) == weight_0_handle)
-                    return e0;
-                else if (w(e1) == weight_0_handle)
-                    return e1;
-
                 // kronecker with the "1" terminal as a base case
                 if (term(e0))
                 {
-                    if (w(e0) == weight_1_handle)
+                    // kronecker with 0 always gives 0
+                    if (w(e0) == weight_0_handle)
+                        return e0;
+                    else if (w(e0) == weight_1_handle)
                         return e1; // avoid multiplication for the case of multiplying by 1
                     else
                         return edge(dd->apply(w(e0), w(e1), weight_op_mul), v(e1));
@@ -1665,6 +1618,8 @@ void write_dot(
 
     fprintf(f, "  labelloc=\"t\";\n");
     fprintf(f, "  label=\"%s\";\n", title);
+    fprintf(f, "  splines=line;\n");
+    //fprintf(f, "  concentrate=true;\n");
 
     std::vector<qmdd::node_handle> nodes2add = { root.v };
 
@@ -1684,15 +1639,15 @@ void write_dot(
     std::unordered_set<qmdd::node_handle, node_hasher> declared;
     
     fprintf(f, "  root [shape=point,width=0.001,height=0.001];\n");
-    fprintf(f, "  root -> n%x [label=\"%s\"];\n", root.v.value, dd.to_string(root.w).c_str());
+    fprintf(f, "  root -> n%u [label=\"%s\"];\n", root.v.value, dd.to_string(root.w).c_str());
 
     if (root.v == true_node)
     {
-        fprintf(f, "  n%x [label=\"1\",shape=box];\n", true_node.value);
+        fprintf(f, "  n%u [label=\"1\",shape=box];\n", true_node.value);
     }
     else
     {
-        fprintf(f, "  n%x [label=\"%s\",shape=circle];\n", root.v.value, spec.variable_names[dd.get_var(root.v)].c_str());
+        fprintf(f, "  n%u [label=\"%s\",shape=circle];\n", root.v.value, spec.variable_names[dd.get_var(root.v)].c_str());
     }
 
     declared.insert(root.v);
@@ -1719,11 +1674,11 @@ void write_dot(
             {
                 if (child == true_node)
                 {
-                    fprintf(f, "  n%x [label=\"1\",shape=box];\n", true_node.value);
+                    fprintf(f, "  n%u [label=\"1\",shape=box];\n", child.value);
                 }
                 else
                 {
-                    fprintf(f, "  n%x [label=\"%s\",shape=circle];\n", child.value, spec.variable_names[dd.get_var(child)].c_str());
+                    fprintf(f, "  n%u [label=\"%s\",shape=circle];\n", child.value, spec.variable_names[dd.get_var(child)].c_str());
                 }
             }
 
@@ -1732,7 +1687,7 @@ void write_dot(
         }
 
         // "invisible" row of nodes for the child weights, then point those invisible nodes to the real nodes.
-        fprintf(f, "  subgraph c%x {\n", n.value);
+        fprintf(f, "  subgraph c%u {\n", n.value);
         {
             fprintf(f, "    rank=same;\n");
             fprintf(f, "    edge[style=invisible,dir=none];\n");
@@ -1741,30 +1696,46 @@ void write_dot(
             {
                 if (weights[i] == qmdd::weight_0_handle)
                 {
-                    fprintf(f, "    c%x_%d[shape=point];\n", n.value, i);
+                    fprintf(f, "    c%u_%d[shape=point];\n", n.value, i);
                 }
                 else
                 {
-                    fprintf(f, "    c%x_%d[shape=point,width=0.01,height=0.01];\n", n.value, i);
+                    fprintf(f, "    c%u_%d[shape=point,width=0.01,height=0.01];\n", n.value, i);
                 }
             }
 
-            for (int i = 0; i < p * p; i++)
+            // used for rank order...
+            fprintf(f, "    c%u_%d[shape=point,width=0,height=0,style=invis];\n", n.value, p*p);
+
+            for (int i = 0; i <= p * p; i++)
             {
                 if (i == 0)
                     fprintf(f, "    ");
                 else
                     fprintf(f, " -> ");
 
-                fprintf(f, "c%x_%d", n.value, i);
+                if (i == p*p / 2)
+                {
+                    // putting the invisible node here make the children more centered
+                    fprintf(f, "c%u_%d", n.value, p*p);
+                }
+                else if (i > p*p / 2)
+                {
+                    fprintf(f, "c%u_%d", n.value, i - 1);
+                }
+                else
+                {
+                    fprintf(f, "c%u_%d", n.value, i);
+                }
             }
+
             fprintf(f, ";\n");
         }
         fprintf(f, "  }\n");
 
         for (int i = 0; i < p * p; i++)
         {
-            fprintf(f, "  n%x -> c%x_%d [label=\"%s\", arrowhead=none];\n", n.value, n.value, i, dd.to_string(weights[i]).c_str());
+            fprintf(f, "  n%u -> c%u_%d [label=\"%s\", arrowhead=none];\n", n.value, n.value, i, dd.to_string(weights[i]).c_str());
         }
 
         for (int i = 0; i < p * p; i++)
@@ -1774,7 +1745,8 @@ void write_dot(
                 continue;
             }
 
-            fprintf(f, "  c%x_%d -> n%x;\n", n.value, i, children[i].value);
+            fprintf(f, "  c%u_%d -> n%u [constraint=false];\n", n.value, i, children[i].value);
+            fprintf(f, "  c%u_%d -> n%u [style=invis];\n", n.value, p*p, children[i].value);
         }
 
         added.insert(n);

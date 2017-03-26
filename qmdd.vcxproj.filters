@@ -50,6 +50,21 @@
     <None Include="cnotc.tfc">
       <Filter>tests</Filter>
     </None>
+    <None Include="notnot.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="cnotcnot.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="cnotnot.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="idcnot_idcnot.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="cnotid_idcnot.tfc">
+      <Filter>tests</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="tests">
