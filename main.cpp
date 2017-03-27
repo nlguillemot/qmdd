@@ -2245,13 +2245,15 @@ void write_dot(
 
             for (int i = 0; i < p * p; i++)
             {
+                const char* color = i % 2 == 0 ? "red" : "black";
+
                 if (weights[i] == qmdd::weight_0_handle)
                 {
-                    fprintf(f, "    c%u_%d[shape=point];\n", n.value, i);
+                    fprintf(f, "    c%u_%d[shape=point,color=%s];\n", n.value, i, color);
                 }
                 else
                 {
-                    fprintf(f, "    c%u_%d[shape=point,width=0.01,height=0.01];\n", n.value, i);
+                    fprintf(f, "    c%u_%d[shape=point,width=0.01,height=0.01,color=%s];\n", n.value, i, color);
                 }
             }
 
@@ -2286,7 +2288,8 @@ void write_dot(
 
         for (int i = 0; i < p * p; i++)
         {
-            fprintf(f, "  n%u -> c%u_%d [label=\"%s\", arrowhead=none];\n", n.value, n.value, i, dd.to_string(weights[i]).c_str());
+            const char* color = i % 2 == 0 ? "red" : "black";
+            fprintf(f, "  n%u -> c%u_%d [label=\"%s\", arrowhead=none,color=%s,fontcolor=%s];\n", n.value, n.value, i, dd.to_string(weights[i]).c_str(), color, color);
         }
 
         for (int i = 0; i < p * p; i++)
@@ -2296,7 +2299,8 @@ void write_dot(
                 continue;
             }
 
-            fprintf(f, "  c%u_%d -> n%u [constraint=false];\n", n.value, i, children[i].value);
+            const char* color = i % 2 == 0 ? "red" : "black";
+            fprintf(f, "  c%u_%d -> n%u [constraint=false,color=%s];\n", n.value, i, children[i].value, color);
             fprintf(f, "  c%u_%d -> n%u [style=invis];\n", n.value, p*p, children[i].value);
         }
 
