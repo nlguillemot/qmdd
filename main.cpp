@@ -1982,6 +1982,13 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
 
         curr_stream().offset += param_count;
 
+#ifdef SHOW_INSTRS
+        if (&curr_stream() != &gate_streams.front())
+        {
+            printf("(microcode) ");
+        }
+#endif
+
         switch (opcode)
         {
         case gate_opcode::toffoli:
