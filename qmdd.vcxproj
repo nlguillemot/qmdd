@@ -80,6 +80,7 @@
     <None Include="cnotcnot.tfc" />
     <None Include="cnotnot.tfc" />
     <None Include="cy.tfc" />
+    <None Include="fredkin.tfc" />
     <None Include="h.tfc" />
     <None Include="id1.tfc" />
     <None Include="id1cnot1.tfc" />

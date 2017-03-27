@@ -1,0 +1,6 @@
+.v a,b
+.i a,b
+.o a,b
+BEGIN
+f2 a,b
+END

@@ -1945,16 +1945,42 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
         identitySubtree[var_id] = root;
     }
 
-    for (int gate_stream_idx = 0; gate_stream_idx < spec.gate_stream.size(); )
+    struct gate_stream_view
     {
-        gate_opcode opcode = (gate_opcode)spec.gate_stream[gate_stream_idx];
-        gate_stream_idx++;
+        const int* stream;
+        int size;
+        int offset;
+    };
 
-        int param_count = spec.gate_stream[gate_stream_idx];
-        gate_stream_idx++;
+    // stack of gate streams to execute.
+    // this is useful to implement "micro-coded" gates.
+    std::vector<gate_stream_view> gate_streams;
+    gate_streams.push_back(gate_stream_view{ spec.gate_stream.data(), (int)spec.gate_stream.size(), 0 });
+
+    // storage for microcode
+    std::vector<int> fredkin_microcode;
+
+    // prevents updates to gate_streams from invalidating pointers...
+    auto curr_stream = [&gate_streams]() -> gate_stream_view& { return gate_streams.back(); };
+
+    while (!gate_streams.empty())
+    {
+        if (curr_stream().offset == curr_stream().size)
+        {
+            gate_streams.pop_back();
+            continue;
+        }
+
+        gate_opcode opcode = (gate_opcode)curr_stream().stream[curr_stream().offset];
+        curr_stream().offset++;
+
+        int param_count = curr_stream().stream[curr_stream().offset];
+        curr_stream().offset++;
         
-        const int* first_param = &spec.gate_stream[gate_stream_idx];
-        const int* last_param = &spec.gate_stream[gate_stream_idx] + param_count;
+        const int* first_param = &curr_stream().stream[curr_stream().offset];
+        const int* last_param = &curr_stream().stream[curr_stream().offset] + param_count;
+
+        curr_stream().offset += param_count;
 
         switch (opcode)
         {
@@ -2135,15 +2161,40 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
             printf("\n");
 #endif
 
-            assert(!"fredkin not supported yet");
+            assert(last_param - first_param >= 2);
+
+            int swap_b_var_id = *(last_param - 1);
+            int swap_a_var_id = *(last_param - 2);
+            int num_controls = (int)(last_param - first_param) - 2;
+
+            fredkin_microcode.clear();
+
+            fredkin_microcode.push_back((int)gate_opcode::toffoli);
+            fredkin_microcode.push_back(2);
+            fredkin_microcode.push_back(swap_b_var_id);
+            fredkin_microcode.push_back(swap_a_var_id);
+
+            fredkin_microcode.push_back((int)gate_opcode::toffoli);
+            fredkin_microcode.push_back(2 + num_controls);
+            for (int control_idx = 0; control_idx < num_controls; control_idx++)
+            {
+                fredkin_microcode.push_back(first_param[control_idx]);
+            }
+            fredkin_microcode.push_back(swap_a_var_id);
+            fredkin_microcode.push_back(swap_b_var_id);
+
+            fredkin_microcode.push_back((int)gate_opcode::toffoli);
+            fredkin_microcode.push_back(2);
+            fredkin_microcode.push_back(swap_b_var_id);
+            fredkin_microcode.push_back(swap_a_var_id);
+
+            gate_streams.push_back(gate_stream_view{ fredkin_microcode.data(), (int)fredkin_microcode.size(), 0 });
 
             break;
         }
         default:
             throw std::logic_error("unknown gate opcode");
         }
-
-        gate_stream_idx += param_count;
     }
 
     if (root_out) *root_out = root;

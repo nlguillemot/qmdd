@@ -98,6 +98,9 @@
     <None Include="toffoli_from_ht.tfc">
       <Filter>tests</Filter>
     </None>
+    <None Include="fredkin.tfc">
+      <Filter>tests</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="tests">
