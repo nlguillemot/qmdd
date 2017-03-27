@@ -1,0 +1,12 @@
+.v a,b
+.i a,b
+.o a,b
+BEGIN
+h1 b
+t2 a,b
+q'1 b
+t2 a,b
+q1 a
+q1 b
+h1 b
+END

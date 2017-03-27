@@ -86,6 +86,18 @@
     <None Include="vtoffoli.tfc">
       <Filter>tests</Filter>
     </None>
+    <None Include="h.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="q.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="cv_fromht.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="toffoli_from_ht.tfc">
+      <Filter>tests</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="tests">

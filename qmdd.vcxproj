@@ -80,6 +80,7 @@
     <None Include="cnotcnot.tfc" />
     <None Include="cnotnot.tfc" />
     <None Include="cy.tfc" />
+    <None Include="h.tfc" />
     <None Include="id1.tfc" />
     <None Include="id1cnot1.tfc" />
     <None Include="id1not1.tfc" />
@@ -93,11 +94,14 @@
     <None Include="notcc.tfc" />
     <None Include="notnot.tfc" />
     <None Include="packages.config" />
+    <None Include="q.tfc" />
     <None Include="rd32.tfc" />
     <None Include="toffoli.tfc" />
+    <None Include="toffoli_from_ht.tfc" />
     <None Include="v.tfc" />
     <None Include="vinv.tfc" />
     <None Include="vtoffoli.tfc" />
+    <None Include="cv_fromht.tfc" />
     <None Include="y.tfc" />
     <None Include="yy.tfc" />
     <None Include="z.tfc" />

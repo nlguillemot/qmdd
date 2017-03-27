@@ -19,7 +19,10 @@ enum class gate_opcode : int
     pauli_y,
     pauli_z,
     sqrtnot,
-    inv_sqrtnot
+    inv_sqrtnot,
+    hadamard,
+    rotate_pi_by_4,
+    inv_rotate_pi_by_4
 };
 
 struct program_spec
@@ -451,9 +454,11 @@ program_spec parse(const char* txt)
                     bool is_y = std::toupper(*s) == 'Y';
                     bool is_z = std::toupper(*s) == 'Z';
                     bool is_v = std::toupper(*s) == 'V';
+                    bool is_h = std::toupper(*s) == 'H';
+                    bool is_q = std::toupper(*s) == 'Q';
 
                     // single argument gate
-                    if (is_toffoli || is_y || is_z || is_v)
+                    if (is_toffoli || is_y || is_z || is_v || is_h || is_q)
                     {
                         s++;
 
@@ -464,6 +469,17 @@ program_spec parse(const char* txt)
                             {
                                 is_notv = true;
                                 is_v = false;
+                                s++;
+                            }
+                        }
+
+                        bool is_notq = false;
+                        if (is_q)
+                        {
+                            if (*s == '\'')
+                            {
+                                is_notq = true;
+                                is_q = false;
                                 s++;
                             }
                         }
@@ -487,6 +503,12 @@ program_spec parse(const char* txt)
                             spec.gate_stream.push_back((int)gate_opcode::sqrtnot);
                         else if (is_notv)
                             spec.gate_stream.push_back((int)gate_opcode::inv_sqrtnot);
+                        else if (is_h)
+                            spec.gate_stream.push_back((int)gate_opcode::hadamard);
+                        else if (is_q)
+                            spec.gate_stream.push_back((int)gate_opcode::rotate_pi_by_4);
+                        else if (is_notq)
+                            spec.gate_stream.push_back((int)gate_opcode::inv_rotate_pi_by_4);
                         else
                             throw std::logic_error("unhandled single argument gate type");
 
@@ -716,7 +738,7 @@ private:
         public:
             rational() = default;
 
-            rational(int n)
+            explicit rational(int n)
                 : num(n), den(1)
             { }
 
@@ -733,6 +755,11 @@ private:
             bool operator==(const rational& other) const
             {
                 return num == other.num && den == other.den;
+            }
+
+            bool operator!=(const rational& other) const
+            {
+                return !(operator==(other));
             }
 
             rational& operator+=(const rational& other)
@@ -831,21 +858,142 @@ private:
             }
         };
 
-        rational real;
-        rational imag;
+        class irrational
+        {
+            rational intpart;
+            rational sqrt2part;
+
+        public:
+            irrational() = default;
+
+            explicit irrational(const rational& i)
+                : intpart(i)
+                , sqrt2part(0)
+            { }
+
+            irrational(const rational& i, const rational& sq2)
+                : intpart(i)
+                , sqrt2part(sq2)
+            { }
+
+            rational integer() const
+            {
+                return intpart;
+            }
+
+            rational sqrt2() const
+            {
+                return sqrt2part;
+            }
+
+            bool operator==(const irrational& other) const
+            {
+                return intpart == other.intpart && sqrt2part == other.sqrt2part;
+            }
+
+            irrational& operator+=(const irrational& other)
+            {
+                intpart += other.intpart;
+                sqrt2part += other.sqrt2part;
+
+                return *this;
+            }
+
+            irrational& operator-=(const irrational& other)
+            {
+                intpart -= other.intpart;
+                sqrt2part -= other.sqrt2part;
+
+                return *this;
+            }
+
+            irrational& operator*=(const irrational& other)
+            {
+                // (a + b sqrt(2)) * (c + d sqrt(2))
+                // = ac + ad sqrt(2) + bc sqrt(2) + bd 2
+                // = (ac + 2bd) + (ad + bc) sqrt(2)
+                rational a = intpart, b = sqrt2part, c = other.intpart, d = other.sqrt2part;
+                
+                intpart = a * c + rational(2) * b * d;
+                sqrt2part = a * d + b * c;
+
+                return *this;
+            }
+
+            irrational& operator/=(const irrational& other)
+            {
+                // derived with wolfram alpha lol
+                rational a = intpart, b = sqrt2part, c = other.intpart, d = other.sqrt2part;
+
+                rational denom = (c * c - rational(2) * d * d);
+                intpart = (a * c - rational(2) * b * d) / denom;
+                sqrt2part = (b * c - a * d) / denom;
+
+                return *this;
+            }
+
+            irrational operator+(const irrational& other) const
+            {
+                irrational tmp(*this);
+                return tmp += other;
+            }
+
+            irrational operator-(const irrational& other) const
+            {
+                irrational tmp(*this);
+                return tmp -= other;
+            }
+
+            irrational operator*(const irrational& other) const
+            {
+                irrational tmp(*this);
+                return tmp *= other;
+            }
+
+            irrational operator/(const irrational& other) const
+            {
+                irrational tmp(*this);
+                return tmp /= other;
+            }
+        };
+
+        irrational real;
+        irrational imag;
 
     public:
         weight() = default;
 
-        explicit weight(int n)
-            : real(n)
-            , imag(0)
-        { }
+        static weight zero()
+        {
+            weight w;
+            w.real = irrational(rational(0));
+            w.imag = irrational(rational(0));
+            return w;
+        }
 
-        weight(int r, int i)
-            : real(r)
-            , imag(i)
-        { }
+        static weight one()
+        {
+            weight w;
+            w.real = irrational(rational(1));
+            w.imag = irrational(rational(0));
+            return w;
+        }
+
+        static weight i()
+        {
+            weight w;
+            w.real = irrational(rational(0));
+            w.imag = irrational(rational(1));
+            return w;
+        }
+
+        static weight sq2()
+        {
+            weight w;
+            w.real = irrational(rational(0), rational(1));
+            w.imag = irrational(rational(0));
+            return w;
+        }
 
         bool operator==(const weight& other) const
         {
@@ -861,7 +1009,7 @@ private:
         {
             // (a + bi) + (c + di)
             // = (a + c) + (b + d)i
-            rational a = real, b = imag, c = other.real, d = other.imag;
+            irrational a = real, b = imag, c = other.real, d = other.imag;
 
             real = a + c;
             imag = b + d;
@@ -879,7 +1027,7 @@ private:
         {
             // (a + bi) - (c + di)
             // = (a - c) + (b - d)i
-            rational a = real, b = imag, c = other.real, d = other.imag;
+            irrational a = real, b = imag, c = other.real, d = other.imag;
 
             real = a - c;
             imag = b - d;
@@ -898,7 +1046,7 @@ private:
             // (a + bi) * (c + di)
             // = ac + adi + bci - bd
             // = (ac - bd) + (ad + bc)i
-            rational a = real, b = imag, c = other.real, d = other.imag;
+            irrational a = real, b = imag, c = other.real, d = other.imag;
             
             real = a * c - b * d;
             imag = a * d + b * c;
@@ -915,9 +1063,9 @@ private:
         weight& operator/=(const weight& other)
         {
             // proof: http://mathworld.wolfram.com/ComplexDivision.html
-            rational a = real, b = imag, c = other.real, d = other.imag;
+            irrational a = real, b = imag, c = other.real, d = other.imag;
 
-            rational denom = c * c + d * d;
+            irrational denom = c * c + d * d;
             real = (a * c + b * d) / denom;
             imag = (b * c - a * d) / denom;
 
@@ -932,70 +1080,123 @@ private:
 
         std::string to_string() const
         {
-            std::string s;
-
-            bool displayed_real = false;
-
-            bool share_denom = real.denominator() != 1 && real.denominator() == imag.denominator();
-
-            if (share_denom)
+            static const auto rational_to_string = [](const rational& r, char mode)
             {
-                s += "(";
-            }
+                std::string s;
 
-            if (real.numerator() != 0 || (real.numerator() == 0 && imag.numerator() == 0))
-            {
-                displayed_real = true;
-
-                if (real.denominator() == 1 || share_denom)
+                if (mode == 'r')
                 {
-                    s += std::to_string(real.numerator());
+                    s += std::to_string(r.numerator());
                 }
-                else
+                
+                if (mode == 'i')
                 {
-                    s += std::to_string(real.numerator()) + "/" + std::to_string(real.denominator());
-                }
-            }
-
-            if (imag.numerator() != 0)
-            {
-                if (imag.numerator() < 0)
-                {
-                    s += "-";
-                }
-                else if (displayed_real)
-                {
-                    s += "+";
-                }
-
-                if (imag.denominator() == 1 || share_denom)
-                {
-                    if (imag.numerator() == 1|| imag.numerator() == -1)
+                    if (r.numerator() == 1)
                     {
                         s += "i";
                     }
-                    else
+                    else if (r.numerator() == -1)
                     {
-                        s += std::to_string(abs(imag.numerator())) + "i";
-                    }
-                }
-                else
-                {
-                    if (imag.numerator() == 1 || imag.numerator() == -1)
-                    {
-                        s += "i/" + std::to_string(imag.denominator());
+                        s += "-i";
                     }
                     else
                     {
-                        s += std::to_string(abs(imag.numerator())) + "i/" + std::to_string(imag.denominator());
+                        s += std::to_string(r.numerator()) + "i";
                     }
                 }
-            }
 
-            if (share_denom)
+                if (r.denominator() != 1)
+                {
+                    s += "/" + std::to_string(r.denominator());
+                }
+
+                return s;
+            };
+
+            static const auto irrational_to_string = [](const irrational& ir, char mode)
             {
-                s += ")/" + std::to_string(real.denominator());
-            }
+                std::string s;
+
+                bool wrote_intpart = false;
+                if (ir.integer() != rational(0))
+                {
+                    s += rational_to_string(ir.integer(), mode);
+
+                    wrote_intpart = true;
+                }
+                
+                bool wrote_sqrt2part = false;
+                if (ir.sqrt2() != rational(0))
+                {
+                    if (wrote_intpart && ir.sqrt2().numerator() > 0)
+                    {
+                        s += "+";
+                    }
+
+                    if (ir.sqrt2().denominator() != 1)
+                        s += "(";
+
+                    s += rational_to_string(ir.sqrt2(), mode);
+
+                    if (ir.sqrt2().denominator() != 1)
+                        s += ")";
+
+                    // utf8 sqrt symbol
+                    s += "\xe2\x88\x9a";
+
+                    s += "2";
+
+                    wrote_sqrt2part = true;
+                }
+
+                if (!wrote_intpart && !wrote_sqrt2part)
+                {
+                    s += "0";
+                }
+
+                return s;
+            };
+
+            static const auto complex_to_string = [](const irrational& real, const irrational& imag)
+            {
+                std::string s;
+
+                int num_real_terms = int(real.integer() != rational(0)) + int(real.sqrt2() != rational(0));
+                if (num_real_terms > 0)
+                {
+                    if (num_real_terms > 1)
+                        s += "(";
+
+                    s += irrational_to_string(real, 'r');
+
+                    if (num_real_terms > 1)
+                        s += ")";
+                }
+
+                int num_imag_terms = int(imag.integer() != rational(0)) + int(imag.sqrt2() != rational(0));
+                if (num_imag_terms > 0)
+                {
+                    if (num_real_terms > 0)
+                        s += "+";
+
+                    if (num_imag_terms > 1)
+                        s += "(";
+
+                    s += irrational_to_string(imag, 'i');
+
+                    if (num_imag_terms > 1)
+                        s += ")";
+                }
+
+                if (num_real_terms == 0 && num_imag_terms == 0)
+                {
+                    s += "0";
+                }
+
+                return s;
+            };
+
+            std::string s = complex_to_string(real, imag);
 
             return s;
         }
@@ -1198,8 +1399,8 @@ private:
     public:
         unique_weights()
         {
-            weights.push_back(weight(0));
-            weights.push_back(weight(1));
+            weights.push_back(weight::zero());
+            weights.push_back(weight::one());
         }
 
         weight_handle insert(const weight& w)
@@ -1327,8 +1528,14 @@ public:
 
     weight_handle get_weight_i_handle()
     {
-        weight weight_i(0, 1);
+        weight weight_i = weight::i();
         return uniquewt.insert(weight_i);
+    }
+
+    weight_handle get_weight_sq2_handle()
+    {
+        weight weight_sq2 = weight::sq2();
+        return uniquewt.insert(weight_sq2);
     }
 
     weight_handle apply(weight_handle w0, weight_handle w1, weight_op op)
@@ -1698,6 +1905,35 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
         inv_sqrtnot_weights[3] = one_sub_i_by_2;
     }
 
+    weight_handle hadamard_weights[p * p];
+    if (p == 2)
+    {
+        weight_handle one_by_sq2 = dd.apply(weight_1_handle, dd.get_weight_sq2_handle(), qmdd::weight_op_div);
+
+        hadamard_weights[0] = one_by_sq2;
+        hadamard_weights[1] = one_by_sq2;
+        hadamard_weights[2] = one_by_sq2;
+        hadamard_weights[3] = dd.apply(weight_0_handle, one_by_sq2, qmdd::weight_op_sub);
+    }
+
+    weight_handle rotate_pi_by_4_weights[p * p];
+    weight_handle inv_rotate_pi_by_4_weights[p * p];
+    if (p == 2)
+    {
+        weight_handle one_by_sq2 = dd.apply(weight_1_handle, dd.get_weight_sq2_handle(), qmdd::weight_op_div);
+        weight_handle i_by_sq2 = dd.apply(dd.get_weight_i_handle(), dd.get_weight_sq2_handle(), qmdd::weight_op_div);
+
+        rotate_pi_by_4_weights[0] = weight_1_handle;
+        rotate_pi_by_4_weights[1] = weight_0_handle;
+        rotate_pi_by_4_weights[2] = weight_0_handle;
+        rotate_pi_by_4_weights[3] = dd.apply(one_by_sq2, i_by_sq2, qmdd::weight_op_add);
+
+        inv_rotate_pi_by_4_weights[0] = weight_1_handle;
+        inv_rotate_pi_by_4_weights[1] = weight_0_handle;
+        inv_rotate_pi_by_4_weights[2] = weight_0_handle;
+        inv_rotate_pi_by_4_weights[3] = dd.apply(one_by_sq2, i_by_sq2, qmdd::weight_op_sub);
+    }
+
     edge root = edge(weight_1_handle, true_node);
 
     // initialize circuit with p^n by p^n identity
@@ -1727,6 +1963,9 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
         case gate_opcode::pauli_z:
         case gate_opcode::sqrtnot:
         case gate_opcode::inv_sqrtnot:
+        case gate_opcode::hadamard:
+        case gate_opcode::rotate_pi_by_4:
+        case gate_opcode::inv_rotate_pi_by_4:
         {
 #ifdef SHOW_INSTRS
             printf("%s%d ", 
@@ -1735,6 +1974,9 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
                 opcode == gate_opcode::pauli_z ? "z" :
                 opcode == gate_opcode::sqrtnot ? "v" :
                 opcode == gate_opcode::inv_sqrtnot ? "v\'" :
+                opcode == gate_opcode::hadamard ? "h" :
+                opcode == gate_opcode::rotate_pi_by_4 ? "q" :
+                opcode == gate_opcode::inv_rotate_pi_by_4 ? "q\'" :
                 "?",
                 param_count);
             for (const int* param = first_param; param < last_param; param++)
@@ -1750,6 +1992,10 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
             const weight_handle* gate_weights;
             if (opcode == gate_opcode::toffoli)
             {
+                if (p != 2)
+                {
+                    assert(!"not gates not allowed outside of 2-valued logic");
+                }
                 gate_weights = not_weights;
             }
             else if (opcode == gate_opcode::pauli_y)
@@ -1783,6 +2029,30 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
                     assert(!"v\' gates not allowed outside of 2-valued logic");
                 }
                 gate_weights = inv_sqrtnot_weights;
+            }
+            else if (opcode == gate_opcode::hadamard)
+            {
+                if (p != 2)
+                {
+                    assert(!"hadamard gates not allowed outside of 2-valued logic");
+                }
+                gate_weights = hadamard_weights;
+            }
+            else if (opcode == gate_opcode::rotate_pi_by_4)
+            {
+                if (p != 2)
+                {
+                    assert(!"q gates not allowed outside of 2-valued logic");
+                }
+                gate_weights = rotate_pi_by_4_weights;
+            }
+            else if (opcode == gate_opcode::inv_rotate_pi_by_4)
+            {
+                if (p != 2)
+                {
+                    assert(!"q\' gates not allowed outside of 2-valued logic");
+                }
+                gate_weights = inv_rotate_pi_by_4_weights;
             }
             else
             {
