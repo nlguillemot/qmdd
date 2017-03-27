@@ -2310,7 +2310,10 @@ void write_dot(
     fprintf(f, "}\n");
 
     fclose(f);
+}
 
+void display_dot(const char* fn)
+{
     std::string dotcmd = std::string("packages\\Graphviz.2.38.0.2\\dot.exe") + " -Tpng " + fn + " -o " + fn + ".png";
     if (system(dotcmd.c_str()) == 0)
     {
@@ -2332,20 +2335,17 @@ int main(int argc, char* argv[]) try
     std::ifstream infile(infilename);
     if (!infile)
     {
-        printf("Failed to open %s\n", infilename);
-        return -1;
+        throw std::runtime_error(std::string("failed to open ") + infilename);
     }
 
     // reads the whole file into a string. Total C++ nonsense, but it works.
     std::string spec_str(std::istreambuf_iterator<char>{infile}, std::istreambuf_iterator<char>{});
 
     program_spec spec;
-    try
-    {
+    try {
         spec = parse(spec_str.c_str());
     }
-    catch (const std::exception& e)
-    {
+    catch (const std::exception& e) {
         throw std::runtime_error(std::string(infilename) + ":" + e.what());
     }
 
@@ -2353,7 +2353,12 @@ int main(int argc, char* argv[]) try
     qmdd dd = decode(spec, &root);
 
     std::string outfilename = std::string(infilename) + ".dot";
+    
     write_dot(infilename, spec, dd, root, outfilename.c_str());
+
+    display_dot(outfilename.c_str());
+
+    return 0;
 }
 catch (const std::exception& e)
 {
