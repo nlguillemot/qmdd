@@ -1831,15 +1831,14 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
             identity_children[i * p + j] = true_node;
 
             if (i == j)
-            {
                 identity_weights[i * p + j] = weight_1_handle;
-                not_weights[i * p + j] = weight_0_handle;
-            }
             else
-            {
                 identity_weights[i * p + j] = weight_0_handle;
+
+            if (i == p - 1 - j)
                 not_weights[i * p + j] = weight_1_handle;
-            }
+            else
+                not_weights[i * p + j] = weight_0_handle;
         }
     }
 
@@ -2025,10 +2024,6 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
             const weight_handle* gate_weights;
             if (opcode == gate_opcode::toffoli)
             {
-                if (p != 2)
-                {
-                    assert(!"not gates not allowed outside of 2-valued logic");
-                }
                 gate_weights = not_weights;
             }
             else if (opcode == gate_opcode::pauli_y)
