@@ -2388,12 +2388,12 @@ int main(int argc, char* argv[]) try
         return 0;
     }
 
-    const char* infilename = argv[1];
+    std::string infilename = argv[1];
 
     std::ifstream infile(infilename);
     if (!infile)
     {
-        throw std::runtime_error(std::string("failed to open ") + infilename);
+        throw std::runtime_error("failed to open " + infilename);
     }
 
     // reads the whole file into a string. Total C++ nonsense, but it works.
@@ -2404,15 +2404,15 @@ int main(int argc, char* argv[]) try
         spec = parse(spec_str.c_str());
     }
     catch (const std::exception& e) {
-        throw std::runtime_error(std::string(infilename) + ":" + e.what());
+        throw std::runtime_error(infilename + ":" + e.what());
     }
 
     qmdd::edge root;
     qmdd dd = decode(spec, &root);
 
-    std::string outfilename = std::string(infilename) + ".dot";
+    std::string outfilename = infilename + ".dot";
     
-    write_dot(infilename, spec, dd, root, outfilename.c_str());
+    write_dot(infilename.c_str(), spec, dd, root, outfilename.c_str());
 
     display_dot(outfilename.c_str());
 

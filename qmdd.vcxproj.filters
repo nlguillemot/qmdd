@@ -83,9 +83,6 @@
     <None Include="vinv.tfc">
       <Filter>tests</Filter>
     </None>
-    <None Include="vtoffoli.tfc">
-      <Filter>tests</Filter>
-    </None>
     <None Include="h.tfc">
       <Filter>tests</Filter>
     </None>
@@ -99,6 +96,12 @@
       <Filter>tests</Filter>
     </None>
     <None Include="fredkin.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="id2h.tfc">
+      <Filter>tests</Filter>
+    </None>
+    <None Include="toffoli_from_v.tfc">
       <Filter>tests</Filter>
     </None>
   </ItemGroup>

@@ -87,6 +87,7 @@
     <None Include="id1not1.tfc" />
     <None Include="id1not1id1.tfc" />
     <None Include="id2.tfc" />
+    <None Include="id2h.tfc" />
     <None Include="id3.tfc" />
     <None Include="idcnot_idcnot.tfc" />
     <None Include="not.tfc" />
@@ -101,7 +102,7 @@
     <None Include="toffoli_from_ht.tfc" />
     <None Include="v.tfc" />
     <None Include="vinv.tfc" />
-    <None Include="vtoffoli.tfc" />
+    <None Include="toffoli_from_v.tfc" />
     <None Include="cv_fromht.tfc" />
     <None Include="y.tfc" />
     <None Include="yy.tfc" />
