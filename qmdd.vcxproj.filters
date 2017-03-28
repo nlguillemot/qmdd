@@ -104,6 +104,9 @@
     <None Include="toffoli_from_v.tfc">
       <Filter>tests</Filter>
     </None>
+    <None Include="s.tfc">
+      <Filter>tests</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="tests">

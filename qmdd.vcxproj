@@ -98,6 +98,7 @@
     <None Include="packages.config" />
     <None Include="q.tfc" />
     <None Include="rd32.tfc" />
+    <None Include="s.tfc" />
     <None Include="toffoli.tfc" />
     <None Include="toffoli_from_ht.tfc" />
     <None Include="v.tfc" />

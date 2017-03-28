@@ -22,7 +22,9 @@ enum class gate_opcode : int
     inv_sqrtnot,
     hadamard,
     rotate_pi_by_4,
-    inv_rotate_pi_by_4
+    inv_rotate_pi_by_4,
+    rotate_pi_by_2,
+    inv_rotate_pi_by_2
 };
 
 struct program_spec
@@ -456,9 +458,10 @@ program_spec parse(const char* txt)
                     bool is_v = std::toupper(*s) == 'V';
                     bool is_h = std::toupper(*s) == 'H';
                     bool is_q = std::toupper(*s) == 'Q';
+                    bool is_s = std::toupper(*s) == 'S';
 
                     // single argument gate
-                    if (is_toffoli || is_y || is_z || is_v || is_h || is_q)
+                    if (is_toffoli || is_y || is_z || is_v || is_h || is_q || is_s)
                     {
                         s++;
 
@@ -480,6 +483,17 @@ program_spec parse(const char* txt)
                             {
                                 is_notq = true;
                                 is_q = false;
+                                s++;
+                            }
+                        }
+
+                        bool is_nots = false;
+                        if (is_s)
+                        {
+                            if (*s == '\'')
+                            {
+                                is_nots = true;
+                                is_s = false;
                                 s++;
                             }
                         }
@@ -509,6 +523,10 @@ program_spec parse(const char* txt)
                             spec.gate_stream.push_back((int)gate_opcode::rotate_pi_by_4);
                         else if (is_notq)
                             spec.gate_stream.push_back((int)gate_opcode::inv_rotate_pi_by_4);
+                        else if (is_s)
+                            spec.gate_stream.push_back((int)gate_opcode::rotate_pi_by_2);
+                        else if (is_nots)
+                            spec.gate_stream.push_back((int)gate_opcode::inv_rotate_pi_by_2);
                         else
                             throw std::logic_error("unhandled single argument gate type");
 
@@ -1933,6 +1951,24 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
         inv_rotate_pi_by_4_weights[3] = dd.apply(one_by_sq2, i_by_sq2, qmdd::weight_op_sub);
     }
 
+    weight_handle rotate_pi_by_2_weights[p * p];
+    weight_handle inv_rotate_pi_by_2_weights[p * p];
+    if (p == 2)
+    {
+        weight_handle one_by_sq2 = dd.apply(weight_1_handle, dd.get_weight_sq2_handle(), qmdd::weight_op_div);
+        weight_handle i_by_sq2 = dd.apply(dd.get_weight_i_handle(), dd.get_weight_sq2_handle(), qmdd::weight_op_div);
+
+        rotate_pi_by_2_weights[0] = weight_1_handle;
+        rotate_pi_by_2_weights[1] = weight_0_handle;
+        rotate_pi_by_2_weights[2] = weight_0_handle;
+        rotate_pi_by_2_weights[3] = dd.get_weight_i_handle();
+
+        inv_rotate_pi_by_2_weights[0] = weight_1_handle;
+        inv_rotate_pi_by_2_weights[1] = weight_0_handle;
+        inv_rotate_pi_by_2_weights[2] = weight_0_handle;
+        inv_rotate_pi_by_2_weights[3] = dd.apply(weight_0_handle, dd.get_weight_i_handle(), qmdd::weight_op_sub);
+    }
+
     edge root = edge(weight_1_handle, true_node);
 
     // initialize circuit with p^n by p^n identity
@@ -1998,6 +2034,8 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
         case gate_opcode::hadamard:
         case gate_opcode::rotate_pi_by_4:
         case gate_opcode::inv_rotate_pi_by_4:
+        case gate_opcode::rotate_pi_by_2:
+        case gate_opcode::inv_rotate_pi_by_2:
         {
 #ifdef SHOW_INSTRS
             printf("%s%d ", 
@@ -2009,6 +2047,8 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
                 opcode == gate_opcode::hadamard ? "h" :
                 opcode == gate_opcode::rotate_pi_by_4 ? "q" :
                 opcode == gate_opcode::inv_rotate_pi_by_4 ? "q\'" :
+                opcode == gate_opcode::rotate_pi_by_2 ? "s" :
+                opcode == gate_opcode::inv_rotate_pi_by_2 ? "s\'" :
                 "?",
                 param_count);
             for (const int* param = first_param; param < last_param; param++)
@@ -2081,6 +2121,22 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
                     assert(!"q\' gates not allowed outside of 2-valued logic");
                 }
                 gate_weights = inv_rotate_pi_by_4_weights;
+            }
+            else if (opcode == gate_opcode::rotate_pi_by_2)
+            {
+                if (p != 2)
+                {
+                    assert(!"s gates not allowed outside of 2-valued logic");
+                }
+                gate_weights = rotate_pi_by_2_weights;
+            }
+            else if (opcode == gate_opcode::inv_rotate_pi_by_2)
+            {
+                if (p != 2)
+                {
+                    assert(!"s\' gates not allowed outside of 2-valued logic");
+                }
+                gate_weights = inv_rotate_pi_by_2_weights;
             }
             else
             {
