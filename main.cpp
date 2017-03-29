@@ -1825,7 +1825,7 @@ public:
     }
 };
 
-qmdd decode(const program_spec& spec, qmdd::edge* root_out)
+void decode(const program_spec& spec, qmdd& dd, qmdd::edge* root_out)
 {
     using node_handle = qmdd::node_handle;
     using weight_handle = qmdd::weight_handle;
@@ -1834,8 +1834,6 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
     static const int p = qmdd::p;
     static const weight_handle weight_0_handle = qmdd::weight_0_handle;
     static const weight_handle weight_1_handle = qmdd::weight_1_handle;
-
-    qmdd dd(spec.num_variables);
 
     node_handle true_node = dd.get_true();
 
@@ -2256,8 +2254,6 @@ qmdd decode(const program_spec& spec, qmdd::edge* root_out)
     }
 
     if (root_out) *root_out = root;
-
-    return dd;
 }
 
 void write_dot(
@@ -2459,7 +2455,8 @@ int main(int argc, char* argv[]) try
     }
 
     qmdd::edge root;
-    qmdd dd = decode(spec, &root);
+    qmdd dd = qmdd(spec.num_variables);
+    decode(spec, dd, &root);
 
     std::string outfilename = infilename + ".dot";
     
